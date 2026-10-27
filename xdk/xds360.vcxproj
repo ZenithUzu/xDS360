@@ -47,7 +47,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Xbox 360'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>compat;noods;frontend;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>compat;noods\core;frontend;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_DEBUG;_XBOX;NOODS_XENON=1;ENDIAN_BIG=1;NO_FDOPEN=1;LOG_LEVEL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -59,7 +59,7 @@
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>xapilibd.lib;d3d9d.lib;d3dx9d.lib;xgraphicsd.lib;xboxkrnl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>xapilibd.lib;xaudio2.lib;xmcore.lib;d3d9d.lib;d3dx9d.lib;xgraphicsd.lib;xboxkrnl.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
     </Link>
@@ -73,7 +73,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <PreschedulingOptimization>true</PreschedulingOptimization>
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <AdditionalIncludeDirectories>compat;noods;frontend;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>compat;noods\core;frontend;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NDEBUG;_XBOX;NOODS_XENON=1;ENDIAN_BIG=1;NO_FDOPEN=1;LOG_LEVEL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -85,7 +85,7 @@
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>xapilib.lib;d3d9.lib;d3dx9.lib;xgraphics.lib;xboxkrnl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>xapilib.lib;xaudio2.lib;xmcore.lib;d3d9.lib;d3dx9.lib;xgraphics.lib;xboxkrnl.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
       <OptimizeReferences>true</OptimizeReferences>
@@ -93,43 +93,45 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="compat\xds_files.cpp" />
     <ClCompile Include="compat\xds_platform.cpp" />
-    <ClCompile Include="frontend\emu.cpp" />
     <ClCompile Include="frontend\main.cpp" />
-    <ClCompile Include="noods\arm\cp15.cpp" />
-    <ClCompile Include="noods\arm\interpreter.cpp" />
-    <ClCompile Include="noods\arm\interpreter_alu.cpp" />
-    <ClCompile Include="noods\arm\interpreter_branch.cpp" />
-    <ClCompile Include="noods\arm\interpreter_lookup.cpp" />
-    <ClCompile Include="noods\arm\interpreter_transfer.cpp" />
-    <ClCompile Include="noods\arm\timers.cpp" />
-    <ClCompile Include="noods\core.cpp" />
-    <ClCompile Include="noods\gpu\gpu.cpp" />
-    <ClCompile Include="noods\gpu\gpu_2d.cpp" />
-    <ClCompile Include="noods\gpu\gpu_3d.cpp" />
-    <ClCompile Include="noods\gpu\gpu_3d_renderer.cpp" />
-    <ClCompile Include="noods\hle\action_replay.cpp" />
-    <ClCompile Include="noods\hle\dldi.cpp" />
-    <ClCompile Include="noods\hle\hle_arm7.cpp" />
-    <ClCompile Include="noods\hle\hle_bios.cpp" />
-    <ClCompile Include="noods\io\aes.cpp" />
-    <ClCompile Include="noods\io\div_sqrt.cpp" />
-    <ClCompile Include="noods\io\i2c.cpp" />
-    <ClCompile Include="noods\io\input.cpp" />
-    <ClCompile Include="noods\io\ipc.cpp" />
-    <ClCompile Include="noods\io\rtc.cpp" />
-    <ClCompile Include="noods\io\spi.cpp" />
-    <ClCompile Include="noods\io\spu.cpp" />
-    <ClCompile Include="noods\io\wifi.cpp" />
-    <ClCompile Include="noods\memory\cartridge.cpp" />
-    <ClCompile Include="noods\memory\dma.cpp" />
-    <ClCompile Include="noods\memory\memory.cpp" />
-    <ClCompile Include="noods\memory\ndma.cpp" />
-    <ClCompile Include="noods\memory\sd_mmc.cpp" />
-    <ClCompile Include="noods\save_states.cpp" />
-    <ClCompile Include="noods\settings.cpp" />
-  </ItemGroup>
-  <ItemGroup>
+    <ClCompile Include="noods\core\core.cpp" />
+    <ClCompile Include="noods\core\save_states.cpp" />
+    <ClCompile Include="noods\core\settings.cpp" />
+    <ClCompile Include="noods\core\arm\cp15.cpp" />
+    <ClCompile Include="noods\core\arm\interpreter.cpp" />
+    <ClCompile Include="noods\core\arm\interpreter_alu.cpp" />
+    <ClCompile Include="noods\core\arm\interpreter_branch.cpp" />
+    <ClCompile Include="noods\core\arm\interpreter_lookup.cpp" />
+    <ClCompile Include="noods\core\arm\interpreter_transfer.cpp" />
+    <ClCompile Include="noods\core\arm\timers.cpp" />
+    <ClCompile Include="noods\core\gpu\gpu.cpp" />
+    <ClCompile Include="noods\core\gpu\gpu_2d.cpp" />
+    <ClCompile Include="noods\core\gpu\gpu_3d.cpp" />
+    <ClCompile Include="noods\core\gpu\gpu_3d_renderer.cpp" />
+    <ClCompile Include="noods\core\hle\action_replay.cpp" />
+    <ClCompile Include="noods\core\hle\dldi.cpp" />
+    <ClCompile Include="noods\core\hle\hle_arm7.cpp" />
+    <ClCompile Include="noods\core\hle\hle_bios.cpp" />
+    <ClCompile Include="noods\core\io\aes.cpp" />
+    <ClCompile Include="noods\core\io\div_sqrt.cpp" />
+    <ClCompile Include="noods\core\io\i2c.cpp" />
+    <ClCompile Include="noods\core\io\input.cpp" />
+    <ClCompile Include="noods\core\io\ipc.cpp" />
+    <ClCompile Include="noods\core\io\rtc.cpp" />
+    <ClCompile Include="noods\core\io\spi.cpp" />
+    <ClCompile Include="noods\core\io\spu.cpp" />
+    <ClCompile Include="noods\core\io\wifi.cpp" />
+    <ClCompile Include="noods\core\memory\cartridge.cpp" />
+    <ClCompile Include="noods\core\memory\dma.cpp" />
+    <ClCompile Include="noods\core\memory\memory.cpp" />
+    <ClCompile Include="noods\core\memory\ndma.cpp" />
+    <ClCompile Include="noods\core\memory\sd_mmc.cpp" />
+    <ClCompile Include="noods\ui\nds_icon.cpp" />
+    <ClCompile Include="noods\ui\screen_layout.cpp" />
+    <ClCompile Include="noods\ui\console\console_ui.cpp" />
+    <ClCompile Include="noods\ui\console\images.cpp" />
     <ClInclude Include="compat\atomic" />
     <ClInclude Include="compat\chrono" />
     <ClInclude Include="compat\condition_variable" />
@@ -138,37 +140,39 @@
     <ClInclude Include="compat\xds_compat.h" />
     <ClInclude Include="compat\xds_platform.h" />
     <ClInclude Include="compat\xds_unistd.h" />
-    <ClInclude Include="frontend\emu.h" />
-    <ClInclude Include="frontend\font8x8_basic.h" />
-    <ClInclude Include="noods\arm\cp15.h" />
-    <ClInclude Include="noods\arm\interpreter.h" />
-    <ClInclude Include="noods\arm\timers.h" />
-    <ClInclude Include="noods\core.h" />
-    <ClInclude Include="noods\defines.h" />
-    <ClInclude Include="noods\gpu\gpu.h" />
-    <ClInclude Include="noods\gpu\gpu_2d.h" />
-    <ClInclude Include="noods\gpu\gpu_3d.h" />
-    <ClInclude Include="noods\gpu\gpu_3d_renderer.h" />
-    <ClInclude Include="noods\hle\action_replay.h" />
-    <ClInclude Include="noods\hle\dldi.h" />
-    <ClInclude Include="noods\hle\hle_arm7.h" />
-    <ClInclude Include="noods\hle\hle_bios.h" />
-    <ClInclude Include="noods\io\aes.h" />
-    <ClInclude Include="noods\io\div_sqrt.h" />
-    <ClInclude Include="noods\io\i2c.h" />
-    <ClInclude Include="noods\io\input.h" />
-    <ClInclude Include="noods\io\ipc.h" />
-    <ClInclude Include="noods\io\rtc.h" />
-    <ClInclude Include="noods\io\spi.h" />
-    <ClInclude Include="noods\io\spu.h" />
-    <ClInclude Include="noods\io\wifi.h" />
-    <ClInclude Include="noods\memory\cartridge.h" />
-    <ClInclude Include="noods\memory\dma.h" />
-    <ClInclude Include="noods\memory\memory.h" />
-    <ClInclude Include="noods\memory\ndma.h" />
-    <ClInclude Include="noods\memory\sd_mmc.h" />
-    <ClInclude Include="noods\save_states.h" />
-    <ClInclude Include="noods\settings.h" />
+    <ClInclude Include="noods\LICENSE" />
+    <ClInclude Include="noods\core\core.h" />
+    <ClInclude Include="noods\core\defines.h" />
+    <ClInclude Include="noods\core\save_states.h" />
+    <ClInclude Include="noods\core\settings.h" />
+    <ClInclude Include="noods\core\arm\cp15.h" />
+    <ClInclude Include="noods\core\arm\interpreter.h" />
+    <ClInclude Include="noods\core\arm\timers.h" />
+    <ClInclude Include="noods\core\gpu\gpu.h" />
+    <ClInclude Include="noods\core\gpu\gpu_2d.h" />
+    <ClInclude Include="noods\core\gpu\gpu_3d.h" />
+    <ClInclude Include="noods\core\gpu\gpu_3d_renderer.h" />
+    <ClInclude Include="noods\core\hle\action_replay.h" />
+    <ClInclude Include="noods\core\hle\dldi.h" />
+    <ClInclude Include="noods\core\hle\hle_arm7.h" />
+    <ClInclude Include="noods\core\hle\hle_bios.h" />
+    <ClInclude Include="noods\core\io\aes.h" />
+    <ClInclude Include="noods\core\io\div_sqrt.h" />
+    <ClInclude Include="noods\core\io\i2c.h" />
+    <ClInclude Include="noods\core\io\input.h" />
+    <ClInclude Include="noods\core\io\ipc.h" />
+    <ClInclude Include="noods\core\io\rtc.h" />
+    <ClInclude Include="noods\core\io\spi.h" />
+    <ClInclude Include="noods\core\io\spu.h" />
+    <ClInclude Include="noods\core\io\wifi.h" />
+    <ClInclude Include="noods\core\memory\cartridge.h" />
+    <ClInclude Include="noods\core\memory\dma.h" />
+    <ClInclude Include="noods\core\memory\memory.h" />
+    <ClInclude Include="noods\core\memory\ndma.h" />
+    <ClInclude Include="noods\core\memory\sd_mmc.h" />
+    <ClInclude Include="noods\ui\nds_icon.h" />
+    <ClInclude Include="noods\ui\screen_layout.h" />
+    <ClInclude Include="noods\ui\console\console_ui.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

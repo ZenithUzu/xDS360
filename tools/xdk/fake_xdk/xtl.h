@@ -98,7 +98,9 @@ enum D3DDEVTYPE { D3DDEVTYPE_HAL };
 enum D3DPOOL { D3DPOOL_DEFAULT };
 enum D3DPRIMITIVETYPE { D3DPT_TRIANGLESTRIP };
 enum D3DRENDERSTATETYPE { D3DRS_VIEWPORTENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_ZENABLE,
-                          D3DRS_SCISSORTESTENABLE, D3DRS_CULLMODE, D3DRS_COLORWRITEENABLE };
+                          D3DRS_SCISSORTESTENABLE, D3DRS_CULLMODE, D3DRS_COLORWRITEENABLE, D3DRS_SRCBLEND,
+                          D3DRS_DESTBLEND };
+enum { D3DBLEND_SRCALPHA = 5, D3DBLEND_INVSRCALPHA = 6 };
 enum { D3DCULL_NONE };
 enum D3DSAMPLERSTATETYPE { D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV };
 enum { D3DTEXF_POINT, D3DTEXF_LINEAR, D3DTADDRESS_CLAMP };
@@ -107,6 +109,7 @@ enum { D3DDECLMETHOD_DEFAULT };
 enum { D3DDECLUSAGE_POSITION, D3DDECLUSAGE_TEXCOORD };
 #define D3DCREATE_HARDWARE_VERTEXPROCESSING 0x40
 #define D3DPRESENT_INTERVAL_IMMEDIATE 0x80000000
+#define D3DPRESENT_INTERVAL_ONE 0x1
 #define D3DCLEAR_TARGET 1
 #define D3DDECL_END() { 0xFF, 0, D3DDECLTYPE_UNUSED, 0, 0, 0 }
 typedef struct { WORD Stream; WORD Offset; DWORD Type; BYTE Method; BYTE Usage; BYTE UsageIndex; } D3DVERTEXELEMENT9;
@@ -121,6 +124,7 @@ struct IDirect3DVertexDeclaration9 {};
 struct IDirect3DTexture9 {
     HRESULT LockRect(UINT, D3DLOCKED_RECT *, const void *, DWORD);
     HRESULT UnlockRect(UINT);
+    DWORD Release();
 };
 struct IDirect3DDevice9 {
     HRESULT CreateVertexShader(const DWORD *, IDirect3DVertexShader9 **);
@@ -135,6 +139,7 @@ struct IDirect3DDevice9 {
     void SetVertexDeclaration(IDirect3DVertexDeclaration9 *);
     void SetVertexShader(IDirect3DVertexShader9 *);
     void SetPixelShader(IDirect3DPixelShader9 *);
+    void SetPixelShaderConstantF(UINT, const float *, DWORD);
     void SetTexture(DWORD, IDirect3DTexture9 *);
     HRESULT DrawPrimitiveUP(D3DPRIMITIVETYPE, UINT, const void *, UINT);
     DWORD InsertFence();

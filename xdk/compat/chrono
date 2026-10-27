@@ -34,6 +34,7 @@ private:
 };
 
 typedef duration<long long, micro> microseconds;
+typedef duration<long long, ratio<1> > seconds;
 
 template <typename R1, typename P1, typename R2, typename P2>
 inline bool operator<(const duration<R1, P1> &a, const duration<R2, P2> &b) {

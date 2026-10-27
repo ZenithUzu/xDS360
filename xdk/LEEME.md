@@ -1,12 +1,13 @@
 # xDS360 con VS2010 y el XDK
 
-Versión en desarrollo: un explorador simple para elegir la ROM, las dos
-pantallas y los FPS. Todavía no tiene sonido ni opciones.
+Versión en desarrollo con la interfaz de consola de NooDS (la misma que usa
+su versión de Wii U): explorador de archivos, menú de pausa, guardado rápido
+(estados), trucos y ajustes.
 
 ## Compilar
 
 1. Abre `xdk/xds360.sln` con Visual Studio 2010 (con el XDK de Xbox 360 instalado).
-2. Elige **Release | Xbox 360** y dale a **Build**.
+2. Elige **Release | Xbox 360** y dale a **Rebuild** (la lista de archivos cambió).
 3. El ejecutable sale en `xdk/Release/default.xex`.
 
 ## Poner en la consola
@@ -17,43 +18,45 @@ Copia solo `default.xex` a una carpeta de la consola. Al abrirlo crea solo:
 (carpeta del emulador)\
     default.xex
     roms\       <- pon aquí tus .nds (también puedes usar subcarpetas)
-    saves\      <- partidas guardadas (juego.sav), cada 5 segundos y al salir
-    bios\       <- opcional: bios7.bin, bios9.bin, firmware.bin
-    xds360.cfg  <- recuerda la última carpeta abierta
+    saves\      <- partidas guardadas (juego.sav)
+    states\     <- guardado rápido (Save State / Load State)
+    cheats\     <- trucos
+    noods.ini   <- ajustes (se crea solo)
     xds360.log
+    bios7.bin, bios9.bin, firmware.bin   <- opcionales; sin ellos usa arranque directo
 ```
 
 - Los nombres de archivo deben tener **máximo 42 caracteres** (límite de FATX).
-- Sin BIOS usa arranque directo.
+- Si un `noods.ini` viejo da problemas, bórralo y se vuelve a crear.
 
 ## Explorador
 
-Abre en la última carpeta que usaste (la primera vez, en `roms\`). Muestra
-carpetas `[entre corchetes]` y archivos `.nds` con su tamaño.
+Abre en `roms\`. Con **B** subes de carpeta; desde la carpeta del emulador
+llegas a las unidades: disco duro (`hdd`) y USB (`usb0` a `usb2`).
 
 | Botón | Qué hace |
 |---|---|
-| Cruceta o stick izquierdo | Moverse (mantener para avanzar rápido) |
-| LB / RB | Página arriba / abajo |
+| Cruceta o stick izquierdo | Moverse |
 | A | Abrir carpeta o jugar |
-| B | Subir una carpeta; desde la raíz de una unidad, ver las unidades |
-| Y | Ir a `roms\` |
-| Back | Salir al dashboard |
+| B | Subir una carpeta |
+| X | Ajustes |
+| Start | Salir al dashboard |
 
-Unidades: carpeta del emulador (`game:\`), disco duro (`hdd:\`) y USB
-(`usb0:\` a `usb2:\`). Solo aparecen las que estén conectadas.
-
-## Controles
+## Controles en el juego
 
 | Xbox | DS |
 |---|---|
 | A, B, X, Y | A, B, X, Y |
 | LB, RB | L, R |
 | Start, Back | Start, Select |
-| Cruceta | Cruceta |
+| Cruceta o stick izquierdo | Cruceta |
 | Stick derecho | Mueve el cursor táctil |
 | RT | Toca la pantalla |
-| Back + Start (1.5 s) | Volver al explorador |
+| Clic del stick derecho (RS) | Menú de pausa |
+| LT (mantener) | Avance rápido |
+| Clic del stick izquierdo (LS) | Cambiar las pantallas de lugar |
+
+Los botones se pueden cambiar en **Ajustes > Controls** (botón X dentro de Ajustes).
 
 ## Log
 
@@ -68,8 +71,15 @@ por cuadro. Si algo falla en la consola, mándalo.
   regenera con `scripts/fetch_noods.sh` y luego ese script.
 - `compat/`: versiones propias de `<thread>`, `<mutex>`, `<atomic>`, `<chrono>`
   y `<condition_variable>` (VS2010 no las tiene), hechas con funciones del XDK.
-- `frontend/`: `emu.cpp` habla con NooDS; `main.cpp` hace video, control, log y
-  rutas. `font8x8_basic.h` es la fuente font8x8 de Daniel Hepper (dominio público).
+- `noods/ui/`: la interfaz de consola de NooDS (menús, explorador, imágenes),
+  también convertida por ese script. Los iconos de los botones A, B, X y Start
+  se pintan con colores de Xbox desde `main.cpp` (dibujo propio).
+- `frontend/main.cpp`: la capa de Xbox que pide esa interfaz: video (Direct3D),
+  control, sonido (XAudio2), unidades, log y rutas.
+- `compat/xds_files.cpp`: traduce las rutas de NooDS (`/game:/roms`) a las de
+  Xbox (`game:\roms`) y lista carpetas y unidades.
+- `tools/xdk/update_vcxproj.py`: vuelve a escribir la lista de archivos del
+  proyecto de VS2010 cuando cambia el núcleo.
 
 ## Pruebas en PC
 

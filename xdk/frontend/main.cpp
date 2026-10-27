@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// xDS360 frontend for the Xbox 360 XDK: a simple file browser to pick a ROM,
-// then both DS screens stacked in 720p, the first controller, and a log.
+// xDS360 platform layer for NooDS's console UI (the one NooDS uses on Wii U,
+// see its src/ui/console/main_wiiu.cpp): Direct3D drawing, XInput, XAudio2,
+// drive mounting and a log. The menus themselves are NooDS's ConsoleUI.
 #define NOMINMAX
 #include <xtl.h>
+#include <xaudio2.h>
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <algorithm>
-#include <string>
 #include <vector>
 
-#include "emu.h"
-#include "font8x8_basic.h"
+#include "../noods/ui/console/console_ui.h"
+#include "../noods/core/settings.h"
 #include "xds_platform.h"
+#include "xds_unistd.h"
 
 // Kernel call that makes a device reachable by a name, such as the hard drive
 // as "hdd:". Same layout as the kernel's ANSI_STRING.
@@ -24,23 +26,15 @@ struct KernelString {
 };
 extern "C" long ObCreateSymbolicLink(KernelString *link, KernelString *device);
 
+extern uint8_t _binary_src_ui_console_images_font_bmp_start[];
+
 namespace {
 
-const char *kTitle = "xDS360 dev";
-const char *kVersion = "0.1.0-dev"; // change when something visible changes
+const char *kTitle = "xDS360";
+const char *kVersion = "0.2.0-dev"; // change when something visible changes
 const char *kLogPath = "game:\\xds360.log";
 const char *kOldLogPath = "game:\\xds360-anterior.log";
-const char *kConfigPath = "game:\\xds360.cfg";
-const char *kRomsFolder = "game:\\roms\\";
-
-// DS refresh rate is 59.8261 Hz.
-const long long kFrameMicroseconds = 16715;
-const long long kSaveMicroseconds = 5000000;
-const long long kStallMicroseconds = 10000000;
-const long long kExitHoldMicroseconds = 1500000;
-
-// Screen placement in the 1280x720 back buffer: 256x384 scaled to 480x720.
-const float kScreenX = 400.0f, kScreenY = 0.0f, kScreenW = 480.0f, kScreenH = 720.0f;
+const int kWidth = 1280, kHeight = 720;
 
 // ---------------------------------------------------------------- log
 
@@ -89,38 +83,34 @@ const char *kVertexShader =
     "struct VS_OUT { float4 Position : POSITION; float2 UV : TEXCOORD0; };\n"
     "VS_OUT main(VS_IN In) { VS_OUT Out; Out.Position = In.Position; Out.UV = In.UV; return Out; }\n";
 
+// NooDS pixels are 0xAABBGGRR; stored in an A8R8G8B8 texture, red and blue
+// come out swapped, so the shader swaps them back. c0 is the tint color.
 const char *kPixelShader =
     "sampler image : register(s0);\n"
-    "float4 main(float2 uv : TEXCOORD0) : COLOR { return tex2D(image, uv); }\n";
+    "float4 tint : register(c0);\n"
+    "float4 main(float2 uv : TEXCOORD0) : COLOR { return tex2D(image, uv).bgra * tint; }\n";
 
-struct Vertex {
+struct QuadVertex {
     float x, y, z, w;
     float u, v;
 };
 
-// Each text row is 8 pixels of letters plus 2 of space, drawn at 2x.
-const int kRowHeight = 10;
-
-// A block of 8x8 text drawn at 2x. The Xbox 360 does not wait for the GPU
-// when the CPU locks a texture, so a texture is rewritten only after the fence
-// set when it was last drawn has passed (as in AdvanXe360's UI renderer).
-struct TextPanel {
-    IDirect3DTexture9 *texture;
-    DWORD fence;
-    int cols, rows;
-    float x, y;
+// A texture for ConsoleUI. The Xbox 360 does not wait for the GPU when the CPU
+// locks or frees a texture, so each one remembers the frame that last drew it
+// and is reused or freed only after that frame's fence has passed.
+struct Texture {
+    IDirect3DTexture9 *d3d;
+    int width, height;
+    unsigned usedFrame;
 };
 
 IDirect3DDevice9 *device = 0;
 IDirect3DVertexShader9 *vertexShader = 0;
 IDirect3DPixelShader9 *pixelShader = 0;
 IDirect3DVertexDeclaration9 *vertexDecl = 0;
-IDirect3DTexture9 *screenTextures[2] = { 0, 0 };
-DWORD screenFences[2] = { 0, 0 };
-int screenIndex = 0;
-TextPanel statusPanel = { 0, 0, 24, 10, 16.0f, 16.0f };  // in game, left of the screens
-TextPanel menuPanel = { 0, 0, 76, 32, 32.0f, 40.0f };    // browser and messages
-DWORD colorTable[32768]; // BGR555 -> A8R8G8B8
+std::vector<Texture*> freeTextures; // released by ConsoleUI, ready for reuse
+unsigned frameNumber = 8;
+DWORD frameFences[8];
 
 bool compileShader(const char *source, const char *profile, ID3DXBuffer **code) {
     ID3DXBuffer *errors = 0;
@@ -136,27 +126,20 @@ bool compileShader(const char *source, const char *profile, ID3DXBuffer **code) 
     return true;
 }
 
-bool createTexture(int width, int height, IDirect3DTexture9 **texture) {
-    HRESULT hr = device->CreateTexture(width, height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT,
-                                       texture, NULL);
-    if (FAILED(hr)) logLine("CreateTexture %dx%d failed (0x%08X)", width, height, (unsigned)hr);
-    return SUCCEEDED(hr);
-}
-
 bool videoInit() {
     IDirect3D9 *d3d = Direct3DCreate9(D3D_SDK_VERSION);
     if (!d3d) { logLine("Direct3DCreate9 failed"); return false; }
 
     D3DPRESENT_PARAMETERS params;
     ZeroMemory(&params, sizeof(params));
-    params.BackBufferWidth = 1280;
-    params.BackBufferHeight = 720;
+    params.BackBufferWidth = kWidth;
+    params.BackBufferHeight = kHeight;
     params.BackBufferFormat = D3DFMT_A8R8G8B8;
     params.BackBufferCount = 1;
     params.MultiSampleType = D3DMULTISAMPLE_NONE;
     params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    // No vsync wait: the emulator paces itself and must not block on Present.
-    params.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    // The emulator runs on its own thread, so the menu thread can wait for vsync.
+    params.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
     HRESULT hr = d3d->CreateDevice(0, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING,
                                    &params, &device);
     if (FAILED(hr)) { logLine("CreateDevice failed (0x%08X)", (unsigned)hr); return false; }
@@ -175,169 +158,162 @@ bool videoInit() {
         D3DDECL_END()
     };
     device->CreateVertexDeclaration(elements, &vertexDecl);
-
-    if (!createTexture(emu::kWidth, emu::kHeight, &screenTextures[0]) ||
-        !createTexture(emu::kWidth, emu::kHeight, &screenTextures[1]) ||
-        !createTexture(statusPanel.cols * 8, statusPanel.rows * kRowHeight, &statusPanel.texture) ||
-        !createTexture(menuPanel.cols * 8, menuPanel.rows * kRowHeight, &menuPanel.texture))
-        return false;
-
-    for (int i = 0; i < 32768; i++) {
-        DWORD r = i & 0x1F, g = (i >> 5) & 0x1F, b = (i >> 10) & 0x1F;
-        r = (r << 3) | (r >> 2);
-        g = (g << 3) | (g >> 2);
-        b = (b << 3) | (b >> 2);
-        colorTable[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
-    }
-    logLine("Video ready: 1280x720");
+    logLine("Video ready: %dx%d", kWidth, kHeight);
     return true;
 }
 
-// Converts a DS frame into the next screen texture (the two take turns).
-void uploadScreens(const uint16_t *pixels, int cursorX, int cursorY) {
-    screenIndex ^= 1;
-    IDirect3DTexture9 *texture = screenTextures[screenIndex];
-    device->SetTexture(0, NULL);
-    if (screenFences[screenIndex]) device->BlockOnFence(screenFences[screenIndex]);
-    D3DLOCKED_RECT locked;
-    if (FAILED(texture->LockRect(0, &locked, NULL, 0))) return;
-    for (int y = 0; y < emu::kHeight; y++) {
-        DWORD *row = (DWORD*)((BYTE*)locked.pBits + y * locked.Pitch);
-        const uint16_t *source = pixels + y * emu::kWidth;
-        for (int x = 0; x < emu::kWidth; x++)
-            row[x] = colorTable[source[x] & 0x7FFF];
-    }
-    // Touch cursor: a small cross on the bottom screen (not part of the game).
-    for (int d = -3; d <= 3; d++) {
-        int x = cursorX + d, y = cursorY;
-        if (x >= 0 && x < emu::kWidth)
-            ((DWORD*)((BYTE*)locked.pBits + (192 + y) * locked.Pitch))[x] ^= 0x00FFFFFF;
-        x = cursorX;
-        y = cursorY + d;
-        if (d != 0 && y >= 0 && y < 192)
-            ((DWORD*)((BYTE*)locked.pBits + (192 + y) * locked.Pitch))[x] ^= 0x00FFFFFF;
-    }
-    texture->UnlockRect(0);
+// Waits until the GPU is done with the frame that last drew this texture.
+void waitForGpu(Texture *texture) {
+    if (frameNumber - texture->usedFrame < 8)
+        device->BlockOnFence(frameFences[texture->usedFrame & 7]);
 }
 
-// Writes lines of text into a panel. Row `highlight` is drawn inverted.
-void setText(TextPanel &panel, const std::vector<std::string> &lines, int highlight = -1) {
-    device->SetTexture(0, NULL);
-    if (panel.fence) device->BlockOnFence(panel.fence);
-    D3DLOCKED_RECT locked;
-    if (FAILED(panel.texture->LockRect(0, &locked, NULL, 0))) return;
-    const std::string empty;
-    for (int row = 0; row < panel.rows; row++) {
-        const std::string &line = row < (int)lines.size() ? lines[row] : empty;
-        const DWORD ink = row == highlight ? 0xFF000000 : 0xFFFFFFFF;
-        const DWORD paper = row == highlight ? 0xFFFFFFFF : 0xFF000000;
-        for (int py = 0; py < kRowHeight; py++) {
-            DWORD *out = (DWORD*)((BYTE*)locked.pBits + (row * kRowHeight + py) * locked.Pitch);
-            for (int col = 0; col < panel.cols; col++) {
-                unsigned char c = col < (int)line.size() ? (unsigned char)line[col] : ' ';
-                if (c >= 128) c = '?'; // the font has no accents (UTF-8 bytes from FTP)
-                unsigned char bits = py < 8 ? font8x8_basic[c][py] : 0;
-                for (int px = 0; px < 8; px++)
-                    out[col * 8 + px] = (bits & (1 << px)) ? ink : paper;
+// The A, B, X and "+" symbols of NooDS's font become Xbox-style buttons:
+// colored discs with a white letter, and Start as a disc with an arrow.
+void paintXboxButtons(uint8_t *bmp) {
+    const int width = U8TO32(bmp, 0x12), height = U8TO32(bmp, 0x16);
+    // Blue, green, red of each disc (BMP pixels are stored B, G, R, A).
+    static const uint8_t colors[4][3] = {
+        { 0x2E, 0xB8, 0x5D }, // A: green
+        { 0x2E, 0x30, 0xD8 }, // B: red
+        { 0xD8, 0x6E, 0x2A }, // X: blue
+        { 0xC8, 0xC8, 0xC8 }  // Start: silver
+    };
+    for (int button = 0; button < 4; button++) {
+        const int cell = 0x80 + button - 32;
+        const int left = 48 * (cell % 10), top = 48 * (cell / 10);
+        // The disc's radius is how far its outermost pixel reaches.
+        float radius = 0;
+        for (int y = 0; y < 48; y++)
+            for (int x = 0; x < 48; x++)
+                if (bmp[0x46 + (((height - 1 - (top + y)) * width + left + x) << 2) + 3]) {
+                    float dx = x - 23.5f, dy = y - 23.5f;
+                    float d = sqrtf(dx * dx + dy * dy);
+                    if (d > radius) radius = d;
+                }
+        for (int y = 0; y < 48; y++) {
+            for (int x = 0; x < 48; x++) {
+                uint8_t *p = &bmp[0x46 + (((height - 1 - (top + y)) * width + left + x) << 2)];
+                float dx = x - 23.5f, dy = y - 23.5f;
+                bool inside = sqrtf(dx * dx + dy * dy) < radius - 1.0f;
+                bool mark; // the letter (or arrow) inside the disc
+                if (button == 3) // Start: an arrow pointing right instead of "+"
+                    mark = dx > -7 && dx < 9 && (dy < 0 ? -dy : dy) < (9 - dx) * 0.6f;
+                else
+                    mark = p[3] < 128; // the letter is the hole in the original disc
+                if (inside && mark) {
+                    const uint8_t ink = button == 3 ? 0x30 : 0xFF;
+                    p[0] = p[1] = p[2] = ink;
+                    p[3] = 0xFF;
+                } else if (p[3]) { // disc and its soft edge keep their alpha
+                    p[0] = colors[button][0];
+                    p[1] = colors[button][1];
+                    p[2] = colors[button][2];
+                }
             }
         }
     }
-    panel.texture->UnlockRect(0);
-}
-
-// Draws a texture in pixel coordinates and returns the fence for it.
-DWORD drawQuad(IDirect3DTexture9 *texture, float x, float y, float w, float h) {
-    x -= 0.5f;
-    y -= 0.5f;
-    Vertex quad[4] = {
-        { x, y, 0.0f, 1.0f, 0.0f, 0.0f },
-        { x + w, y, 0.0f, 1.0f, 1.0f, 0.0f },
-        { x, y + h, 0.0f, 1.0f, 0.0f, 1.0f },
-        { x + w, y + h, 0.0f, 1.0f, 1.0f, 1.0f }
-    };
-    device->SetTexture(0, texture);
-    device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(Vertex));
-    return device->InsertFence();
-}
-
-void present(bool showScreens, TextPanel &panel) {
-    device->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
-    device->BeginScene();
-    device->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE); // positions are in pixels
-    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-    device->SetRenderState(D3DRS_ZENABLE, FALSE);
-    device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
-    device->SetVertexDeclaration(vertexDecl);
-    device->SetVertexShader(vertexShader);
-    device->SetPixelShader(pixelShader);
-    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-    device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-    device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    if (showScreens)
-        screenFences[screenIndex] = drawQuad(screenTextures[screenIndex], kScreenX, kScreenY, kScreenW, kScreenH);
-    panel.fence = drawQuad(panel.texture, panel.x, panel.y, panel.cols * 16.0f, panel.rows * kRowHeight * 2.0f);
-    device->EndScene();
-    device->Present(NULL, NULL, NULL, NULL);
 }
 
 // ---------------------------------------------------------------- input
 
-struct Pad {
-    WORD buttons;
-    BYTE rightTrigger;
-    SHORT leftY, rightX, rightY;
+// Extra bits after XInput's 16 button bits, so triggers and stick directions
+// can be bound like buttons.
+enum {
+    kLeftTrigger = 1 << 16, kRightTrigger = 1 << 17,
+    kLeftUp = 1 << 18, kLeftDown = 1 << 19, kLeftLeft = 1 << 20, kLeftRight = 1 << 21,
+    kRightUp = 1 << 22, kRightDown = 1 << 23, kRightLeft = 1 << 24, kRightRight = 1 << 25
 };
 
-Pad readPad() {
-    Pad pad = { 0, 0, 0, 0, 0 };
+XINPUT_GAMEPAD pad;
+bool scanned = false;
+// Touch cursor on the DS bottom screen, moved with the right stick.
+float cursorX = 128, cursorY = 96;
+unsigned cursorFrame = 0; // frame in which the game asked for touch input
+
+void scanPad() {
+    if (scanned) return;
     XINPUT_STATE state;
-    if (XInputGetState(0, &state) == ERROR_SUCCESS) {
-        pad.buttons = state.Gamepad.wButtons;
-        pad.rightTrigger = state.Gamepad.bRightTrigger;
-        pad.leftY = state.Gamepad.sThumbLY;
-        pad.rightX = state.Gamepad.sThumbRX;
-        pad.rightY = state.Gamepad.sThumbRY;
-    }
-    return pad;
+    if (XInputGetState(0, &state) == ERROR_SUCCESS) pad = state.Gamepad;
+    else ZeroMemory(&pad, sizeof(pad));
+    scanned = true;
 }
 
-uint16_t dsButtons(const Pad &pad) {
-    static const struct { WORD xbox; uint16_t ds; } map[] = {
-        { XINPUT_GAMEPAD_A, emu::kA }, { XINPUT_GAMEPAD_B, emu::kB },
-        { XINPUT_GAMEPAD_X, emu::kX }, { XINPUT_GAMEPAD_Y, emu::kY },
-        { XINPUT_GAMEPAD_LEFT_SHOULDER, emu::kL }, { XINPUT_GAMEPAD_RIGHT_SHOULDER, emu::kR },
-        { XINPUT_GAMEPAD_START, emu::kStart }, { XINPUT_GAMEPAD_BACK, emu::kSelect },
-        { XINPUT_GAMEPAD_DPAD_UP, emu::kUp }, { XINPUT_GAMEPAD_DPAD_DOWN, emu::kDown },
-        { XINPUT_GAMEPAD_DPAD_LEFT, emu::kLeft }, { XINPUT_GAMEPAD_DPAD_RIGHT, emu::kRight }
-    };
-    uint16_t buttons = 0;
-    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
-        if (pad.buttons & map[i].xbox) buttons |= map[i].ds;
-    return buttons;
-}
-
-// Right stick moves the touch cursor (up to 6 pixels per DS frame).
-int stickStep(SHORT value) {
+// Right stick moves the touch cursor; RT touches the screen.
+MenuTouch xboxTouch() {
+    scanPad();
     const int deadZone = 8000;
-    int magnitude = value < 0 ? -(int)value : (int)value;
-    if (magnitude <= deadZone) return 0;
-    int step = 1 + (magnitude - deadZone) * 5 / (32767 - deadZone);
-    return value < 0 ? -step : step;
+    int sx = pad.sThumbRX, sy = pad.sThumbRY;
+    if (sx > deadZone || sx < -deadZone) cursorX += sx / 32767.0f * 4;
+    if (sy > deadZone || sy < -deadZone) cursorY -= sy / 32767.0f * 4;
+    cursorX = cursorX < 0 ? 0 : (cursorX > 255 ? 255 : cursorX);
+    cursorY = cursorY < 0 ? 0 : (cursorY > 191 ? 191 : cursorY);
+    cursorFrame = frameNumber;
+    // shortcut: ignores screen rotation, upgrade if rotated layouts need touch
+    const ScreenLayout &l = ConsoleUI::layout;
+    float x = l.botX + (cursorX + 0.5f) * l.botWidth / 256;
+    float y = l.botY + (cursorY + 0.5f) * l.botHeight / 192;
+    return MenuTouch(pad.bRightTrigger > 64, x * 720 / kHeight, y * 720 / kHeight);
 }
 
-// Waits until no button is held, so a press does not leak into the next screen.
-void waitForRelease(TextPanel &panel) {
-    for (int i = 0; i < 180 && readPad().buttons != 0; i++) {
-        present(false, panel);
-        Sleep(16);
+// ---------------------------------------------------------------- audio
+
+IXAudio2SourceVoice *voice = 0;
+uint32_t audioBuffers[4][1024];
+
+DWORD WINAPI audioThread(LPVOID) {
+    int next = 0;
+    for (;;) {
+        XAUDIO2_VOICE_STATE state;
+        voice->GetState(&state);
+        if (state.BuffersQueued >= 3) {
+            Sleep(2);
+            continue;
+        }
+        uint32_t *buffer = audioBuffers[next];
+        next = (next + 1) & 3;
+        ConsoleUI::fillAudioBuffer(buffer, 1024, 32768);
+        // NooDS packs (right << 16) | left; big-endian memory then has right
+        // first, but XAudio2 wants left first.
+        for (int i = 0; i < 1024; i++)
+            buffer[i] = (buffer[i] << 16) | (buffer[i] >> 16);
+        XAUDIO2_BUFFER submit;
+        ZeroMemory(&submit, sizeof(submit));
+        submit.AudioBytes = sizeof(audioBuffers[0]);
+        submit.pAudioData = (BYTE*)buffer;
+        voice->SubmitSourceBuffer(&submit);
     }
 }
 
-// ---------------------------------------------------------------- files
+void audioInit() {
+    IXAudio2 *xaudio = 0;
+    IXAudio2MasteringVoice *master = 0;
+    if (FAILED(XAudio2Create(&xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR)) ||
+        FAILED(xaudio->CreateMasteringVoice(&master))) {
+        logLine("XAudio2 could not start: no sound");
+        return;
+    }
+    WAVEFORMATEX format;
+    ZeroMemory(&format, sizeof(format));
+    format.wFormatTag = WAVE_FORMAT_PCM;
+    format.nChannels = 2;
+    format.nSamplesPerSec = 32768;
+    format.wBitsPerSample = 16;
+    format.nBlockAlign = 4;
+    format.nAvgBytesPerSec = 32768 * 4;
+    if (FAILED(xaudio->CreateSourceVoice(&voice, &format))) {
+        logLine("XAudio2 voice could not start: no sound");
+        voice = 0;
+        return;
+    }
+    voice->Start(0);
+    HANDLE thread = CreateThread(NULL, 64 * 1024, audioThread, NULL, CREATE_SUSPENDED, NULL);
+    XSetThreadProcessor(thread, 1); // shares core 0 with the emulator, but is light
+    ResumeThread(thread);
+    logLine("Audio ready: 32768 Hz stereo");
+}
+
+// ---------------------------------------------------------------- drives
 
 void mountDrive(const char *link, const char *deviceName) {
     KernelString linkName = { (unsigned short)strlen(link), (unsigned short)(strlen(link) + 1), link };
@@ -347,491 +323,228 @@ void mountDrive(const char *link, const char *deviceName) {
     logLine("Mount %s -> %s: %s", link, deviceName, status >= 0 ? "ok" : "not available");
 }
 
-struct Drive {
-    const char *path;
-    const char *label;
-};
-const Drive kDrives[] = {
-    { "game:\\", "Emulator folder" },
-    { "hdd:\\", "Hard drive" },
-    { "usb0:\\", "USB 1" },
-    { "usb1:\\", "USB 2" },
-    { "usb2:\\", "USB 3" }
-};
+// ---------------------------------------------------------------- stats
 
-void mountDrives() {
-    mountDrive("\\??\\hdd:", "\\Device\\Harddisk0\\Partition1");
-    mountDrive("\\??\\usb0:", "\\Device\\Mass0");
-    mountDrive("\\??\\usb1:", "\\Device\\Mass1");
-    mountDrive("\\??\\usb2:", "\\Device\\Mass2");
-}
+long long statsStart = 0;
+unsigned statsFrames = 0;
+bool wasRunning = false;
 
-// The folders the emulator uses, next to default.xex.
-void createFolders() {
-    static const char *folders[] = { "game:\\roms", "game:\\saves", "game:\\bios" };
-    for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
-        if (CreateDirectory(folders[i], NULL))
-            logLine("Created %s", folders[i]);
-    }
-}
-
-// The XDK headers do not define this Windows constant ("no such file").
-#ifndef INVALID_FILE_ATTRIBUTES
-#define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
-#endif
-
-bool folderExists(const std::string &path) {
-    DWORD attributes = GetFileAttributes(path.c_str());
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-bool hasNdsExtension(const char *name) {
-    size_t length = strlen(name);
-    return length > 4 && _stricmp(name + length - 4, ".nds") == 0;
-}
-
-std::string loadLastFolder() {
-    std::string folder;
-    FILE *file = fopen(kConfigPath, "r");
-    if (!file) return folder;
-    char line[512];
-    while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "lastFolder=", 11) != 0) continue;
-        folder = line + 11;
-        while (!folder.empty() && (folder[folder.size() - 1] == '\n' || folder[folder.size() - 1] == '\r'))
-            folder.erase(folder.size() - 1);
-    }
-    fclose(file);
-    return folder;
-}
-
-void saveLastFolder(const std::string &folder) {
-    FILE *file = fopen(kConfigPath, "w");
-    if (!file) return;
-    fprintf(file, "lastFolder=%s\n", folder.c_str());
-    fclose(file);
-}
-
-// ---------------------------------------------------------------- browser
-
-struct Entry {
-    std::string name;
-    bool folder;
-    unsigned long long size;
-};
-
-bool entryOrder(const Entry &a, const Entry &b) {
-    if (a.folder != b.folder) return a.folder; // folders first
-    return _stricmp(a.name.c_str(), b.name.c_str()) < 0;
-}
-
-// Folders and .nds files in `folder` ("hdd:\Games\"), sorted.
-std::vector<Entry> listFolder(const std::string &folder) {
-    std::vector<Entry> entries;
-    WIN32_FIND_DATA data;
-    HANDLE find = FindFirstFile((folder + "*").c_str(), &data);
-    if (find == INVALID_HANDLE_VALUE) return entries;
-    do {
-        const bool isFolder = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        if (!strcmp(data.cFileName, ".") || !strcmp(data.cFileName, "..")) continue;
-        if (!isFolder && !hasNdsExtension(data.cFileName)) continue;
-        Entry entry;
-        entry.name = data.cFileName;
-        entry.folder = isFolder;
-        entry.size = ((unsigned long long)data.nFileSizeHigh << 32) | data.nFileSizeLow;
-        entries.push_back(entry);
-    } while (entries.size() < 5000 && FindNextFile(find, &data));
-    FindClose(find);
-    std::sort(entries.begin(), entries.end(), entryOrder);
-    return entries;
-}
-
-// "hdd:\Games\DS\" -> "hdd:\Games\". A drive root goes back to the drive list ("").
-std::string parentFolder(const std::string &folder) {
-    // Folders always end in a backslash; a drive root ("hdd:\") has only that one.
-    if (folder.find('\\') + 1 >= folder.size()) return "";
-    return folder.substr(0, folder.find_last_of('\\', folder.size() - 2) + 1);
-}
-
-std::string fitText(const std::string &text, int width) {
-    if ((int)text.size() <= width) return text;
-    return "..." + text.substr(text.size() - (width - 3)); // keep the end of long paths
-}
-
-struct Choice {
-    std::string path;
-    unsigned long long size;
-};
-
-// Lets the user pick a .nds file. Returns false if they leave to the dashboard.
-bool browse(std::string *folder, Choice *choice) {
-    std::vector<Entry> entries;
-    std::vector<std::string> driveLabels;
-    std::vector<int> drives; // indexes into kDrives that are reachable
-    int selected = 0, top = 0;
-    bool reload = true;
-    WORD previous = 0xFFFF; // ignore buttons still held when the browser opens
-    long long repeatAt = 0;
-    const int listRows = menuPanel.rows - 6;
-
-    for (;;) {
-        if (reload) {
-            reload = false;
-            entries.clear();
-            drives.clear();
-            if (folder->empty()) {
-                for (int i = 0; i < (int)(sizeof(kDrives) / sizeof(kDrives[0])); i++)
-                    if (folderExists(kDrives[i].path)) drives.push_back(i);
-            } else {
-                entries = listFolder(*folder);
-            }
-            selected = 0;
-            top = 0;
-        }
-        const int count = folder->empty() ? (int)drives.size() : (int)entries.size();
-
-        // Draw.
-        std::vector<std::string> lines;
-        lines.push_back(std::string(kTitle) + " - choose a game");
-        lines.push_back(fitText(folder->empty() ? "Drives" : *folder, menuPanel.cols));
-        lines.push_back(std::string(menuPanel.cols, '-'));
-        if (selected < top) top = selected;
-        if (selected >= top + listRows) top = selected - listRows + 1;
-        for (int i = top; i < count && i < top + listRows; i++) {
-            std::string line;
-            if (folder->empty()) {
-                const Drive &drive = kDrives[drives[i]];
-                line = std::string(" ") + drive.path + "  " + drive.label;
-            } else if (entries[i].folder) {
-                line = " [" + entries[i].name + "]";
-            } else {
-                char size[32];
-                _snprintf(size, sizeof(size) - 1, "%6.1f MB", entries[i].size / 1048576.0);
-                size[sizeof(size) - 1] = 0;
-                line = " " + fitText(entries[i].name, menuPanel.cols - 12);
-                line.resize(menuPanel.cols - 10, ' ');
-                line += size;
-            }
-            lines.push_back(line);
-        }
-        if (count == 0)
-            lines.push_back(folder->empty() ? " (no drives found)" : " (no folders or .nds files here)");
-        while ((int)lines.size() < menuPanel.rows - 2) lines.push_back("");
-        lines.push_back(std::string(menuPanel.cols, '-'));
-        lines.push_back("A: open   B: up   Y: roms folder   LB/RB: page   Back: exit");
-        setText(menuPanel, lines, count ? 3 + selected - top : -1);
-        present(false, menuPanel);
-        Sleep(16);
-
-        // Input.
-        Pad pad = readPad();
-        WORD buttons = pad.buttons;
-        if (pad.leftY > 16000) buttons |= XINPUT_GAMEPAD_DPAD_UP;
-        if (pad.leftY < -16000) buttons |= XINPUT_GAMEPAD_DPAD_DOWN;
-        if (previous == 0xFFFF) { previous = buttons ? buttons : 0; continue; }
-        const WORD pressed = buttons & ~previous;
-        previous = buttons;
-
-        // Held up/down/LB/RB repeat after 0.4 s, every 0.08 s.
-        const WORD moves = XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
-                           XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
-        WORD move = pressed & moves;
-        const long long now = xds::clockMicroseconds();
-        if (move) repeatAt = now + 400000;
-        else if ((buttons & moves) && now >= repeatAt) { move = buttons & moves; repeatAt = now + 80000; }
-        if (move & XINPUT_GAMEPAD_DPAD_UP) selected--;
-        if (move & XINPUT_GAMEPAD_DPAD_DOWN) selected++;
-        if (move & XINPUT_GAMEPAD_LEFT_SHOULDER) selected -= listRows;
-        if (move & XINPUT_GAMEPAD_RIGHT_SHOULDER) selected += listRows;
-        selected = std::max(0, std::min(count - 1, selected));
-
-        if (pressed & XINPUT_GAMEPAD_BACK) return false;
-        if (pressed & XINPUT_GAMEPAD_Y) { *folder = kRomsFolder; reload = true; continue; }
-        if (pressed & XINPUT_GAMEPAD_B) {
-            if (!folder->empty()) {
-                std::string from = *folder;
-                *folder = parentFolder(*folder);
-                reload = true;
-                logLine("Browser: up from %s to %s", from.c_str(), folder->empty() ? "drives" : folder->c_str());
-            }
-            continue;
-        }
-        if ((pressed & XINPUT_GAMEPAD_A) && count > 0) {
-            if (folder->empty()) {
-                *folder = kDrives[drives[selected]].path;
-                reload = true;
-            } else if (entries[selected].folder) {
-                *folder += entries[selected].name + "\\";
-                reload = true;
-            } else {
-                choice->path = *folder + entries[selected].name;
-                choice->size = entries[selected].size;
-                return true;
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------- messages
-
-// Shows a message until B is pressed.
-void showMessage(const std::vector<std::string> &lines) {
-    std::vector<std::string> wrapped;
-    for (size_t i = 0; i < lines.size(); i++) {
-        std::string line = lines[i];
-        do {
-            wrapped.push_back(line.substr(0, menuPanel.cols));
-            line = line.size() > (size_t)menuPanel.cols ? line.substr(menuPanel.cols) : "";
-        } while (!line.empty());
-    }
-    wrapped.push_back("");
-    wrapped.push_back("B: back");
-    setText(menuPanel, wrapped);
-    bool released = false; // B may still be held from the game
-    for (;;) {
-        present(false, menuPanel);
-        const bool pressed = (readPad().buttons & XINPUT_GAMEPAD_B) != 0;
-        if (pressed && released) return;
-        if (!pressed) released = true;
-        Sleep(16);
-    }
-}
-
-void showError(const std::string &error, const std::string &detail) {
-    std::vector<std::string> lines;
-    lines.push_back(kTitle);
-    lines.push_back("");
-    lines.push_back(error);
-    if (!detail.empty()) lines.push_back(detail);
-    showMessage(lines);
-}
-
-std::string fileName(const std::string &path) {
-    size_t slash = path.find_last_of('\\');
-    return slash == std::string::npos ? path : path.substr(slash + 1);
-}
-
-// ---------------------------------------------------------------- game
-
-// Where the time of each DS frame goes, summed over a window of time.
-struct FrameTimes {
-    long long start, core, upload, present, save, wait;
-    unsigned frames, video, slices;
-
-    void reset(long long now) {
-        start = now;
-        core = upload = present = save = wait = 0;
-        frames = video = slices = 0;
-    }
-    void add(const FrameTimes &other) {
-        core += other.core;
-        upload += other.upload;
-        present += other.present;
-        save += other.save;
-        wait += other.wait;
-        frames += other.frames;
-        video += other.video;
-        slices += other.slices;
-    }
-    double seconds(long long now) const { return (now - start) / 1000000.0; }
-    double fps(long long now) const { return frames / seconds(now); }
-    // Average milliseconds per DS frame.
-    double perFrame(long long total) const { return frames ? total / 1000.0 / frames : 0.0; }
-};
-
-void logTimes(const char *label, const FrameTimes &t, long long now) {
-    logLine("%s fps=%.1f video=%.1f | ms per frame: core=%.1f upload=%.1f present=%.1f save=%.1f "
-            "wait=%.1f | core returns per frame=%.1f",
-            label, t.fps(now), t.video / t.seconds(now), t.perFrame(t.core), t.perFrame(t.upload),
-            t.perFrame(t.present), t.perFrame(t.save), t.perFrame(t.wait),
-            t.frames ? (double)t.slices / t.frames : 0.0);
-}
-
-// Runs one game until Back+Start is held or it stops. Returns to the browser.
-void runGame(const Choice &rom) {
-    const std::string name = fileName(rom.path);
-    // Small ROMs are read into memory once; big ones (Pokemon B/W is 256MB)
-    // are read from the file as the game asks for them.
-    const bool romInRam = rom.size <= 128ULL * 1024 * 1024;
-    static const int renderProcessors[3] = { 2, 3, 4 }; // 3D workers on cores 1 and 2
-    xds::setThreadProcessors(renderProcessors, 3);
-
-    emu::Options options;
-    options.romPath = rom.path;
-    options.dataFolder = "game:";
-    options.biosFolder = "game:\\bios";
-    options.romInRam = romInRam;
-    options.renderThreads = 3;
-    logLine("Starting %s (%llu bytes, romInRam=%d, 3D threads=3)", rom.path.c_str(), rom.size,
-            romInRam ? 1 : 0);
-
-    std::vector<std::string> lines;
-    lines.push_back(kTitle);
-    lines.push_back("");
-    lines.push_back("Loading...");
-    lines.push_back(name);
-    setText(menuPanel, lines);
-    present(false, menuPanel);
-
-    std::string error;
-    long long startTime = xds::clockMicroseconds();
-    if (!emu::start(options, &error)) {
-        logLine("Start failed: %s", error.c_str());
-        showError(error, name);
-        return;
-    }
-    logLine("Core ready in %.1f s", (xds::clockMicroseconds() - startTime) / 1000000.0);
-    logMemory("with the game loaded");
-
-    static uint16_t frame[emu::kWidth * emu::kHeight];
-    int cursorX = 128, cursorY = 96;
-    uint32_t lastCompleted = emu::completedFrames();
+void logStats() {
     long long now = xds::clockMicroseconds();
-    long long nextFrameTime = now, lastSave = now, lastProgress = now, exitHeldSince = 0;
-    FrameTimes second, fiveSeconds, session; // on screen, in the log, at the end
-    second.reset(now);
-    fiveSeconds.reset(now);
-    session.reset(now);
-    bool haveFrame = false;
-    const std::string shortName = name.substr(0, statusPanel.cols);
-    lines.clear();
-    lines.push_back(kTitle);
-    lines.push_back("");
-    lines.push_back(shortName);
-    setText(statusPanel, lines);
-
-    for (;;) {
-        long long before = xds::clockMicroseconds();
-        if (!emu::run(&error)) {
-            logLine("Core stopped: %s | %s", error.c_str(), emu::diagnostics().c_str());
-            emu::stop();
-            showError(error, name);
-            return;
-        }
-        now = xds::clockMicroseconds();
-        second.core += now - before;
-        second.slices++;
-
-        const uint32_t completed = emu::completedFrames();
-        if (completed == lastCompleted) {
-            // runCore also returns when an emulated CPU halts or resumes.
-            if (now - lastProgress > kStallMicroseconds || emu::unknownOpcodes() >= 4096) {
-                logLine("No progress: %s", emu::diagnostics().c_str());
-                emu::stop();
-                showError("The game stopped running.", "See xds360.log");
-                return;
-            }
-            continue;
-        }
-        second.frames += completed - lastCompleted;
-        lastCompleted = completed;
-        lastProgress = now;
-
-        // Input, once per DS frame.
-        Pad pad = readPad();
-        const WORD exitCombo = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_START;
-        if ((pad.buttons & exitCombo) == exitCombo) {
-            if (!exitHeldSince) exitHeldSince = now;
-            else if (now - exitHeldSince >= kExitHoldMicroseconds) break;
-        } else {
-            exitHeldSince = 0;
-        }
-        cursorX = std::max(0, std::min(255, cursorX + stickStep(pad.rightX)));
-        cursorY = std::max(0, std::min(191, cursorY - stickStep(pad.rightY))); // stick up = screen up
-        emu::setInput(dsButtons(pad), pad.rightTrigger > 32, cursorX, cursorY);
-
-        long long mark = xds::clockMicroseconds();
-        if (emu::takeFrame(frame)) {
-            haveFrame = true;
-            uploadScreens(frame, cursorX, cursorY);
-            second.video++;
-        }
-        now = xds::clockMicroseconds();
-        second.upload += now - mark;
-
-        // Once a second: update the on-screen numbers (and every 5 s, the log).
-        if (now - second.start >= 1000000) {
-            char text[64];
-            text[sizeof(text) - 1] = 0;
-            lines.clear();
-            lines.push_back(std::string(kTitle) + " " + kVersion);
-            _snprintf(text, sizeof(text) - 1, "FPS   %5.1f", second.fps(now));
-            lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "SPEED %5.0f%%", second.fps(now) * 100.0 / 59.8261);
-            lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "CORE  %5.1f ms", second.perFrame(second.core));
-            lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "VIDEO %5.1f ms", second.perFrame(second.upload + second.present));
-            lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "WAIT  %5.1f ms", second.perFrame(second.wait));
-            lines.push_back(text);
-            lines.push_back(shortName);
-            lines.push_back("RT: touch  R-stick: move");
-            lines.push_back("Back+Start: menu");
-            setText(statusPanel, lines);
-            fiveSeconds.add(second);
-            session.add(second);
-            if (now - fiveSeconds.start >= 5000000) {
-                logTimes("Last 5 s:", fiveSeconds, now);
-                fiveSeconds.reset(now);
-            }
-            second.reset(now);
-        }
-
-        mark = xds::clockMicroseconds();
-        present(haveFrame, statusPanel);
-        now = xds::clockMicroseconds();
-        second.present += now - mark;
-
-        if (now - lastSave >= kSaveMicroseconds) {
-            emu::writeSave();
-            lastSave = xds::clockMicroseconds();
-            second.save += lastSave - now;
-        }
-
-        // Keep the DS at 59.83 frames per second when the console is fast enough.
-        nextFrameTime += kFrameMicroseconds;
-        now = xds::clockMicroseconds();
-        mark = now;
-        if (nextFrameTime < now - 50000) nextFrameTime = now; // too far behind: don't rush
-        while (now < nextFrameTime) {
-            if (nextFrameTime - now > 2000) Sleep(1);
-            now = xds::clockMicroseconds();
-        }
-        second.wait += now - mark;
+    if (ConsoleUI::running != wasRunning) {
+        wasRunning = ConsoleUI::running;
+        logLine(wasRunning ? "Game running" : "Game paused or stopped");
+        if (wasRunning) logMemory("with the game running");
+        statsStart = now;
+        statsFrames = 0;
     }
-
-    now = xds::clockMicroseconds();
-    session.add(second);
-    logTimes("Whole game:", session, now);
-    logLine("Back to the menu from %s", name.c_str());
-    emu::stop(); // writes the save
-}
-
-void quit() {
-    logLine("Leaving to the dashboard");
-    if (logFile) fclose(logFile);
-    XLaunchNewImage("", 0);
+    statsFrames++;
+    if (wasRunning && now - statsStart >= 5000000) {
+        logLine("Game fps=%d, screen fps=%.1f", ConsoleUI::core ? ConsoleUI::core->fps : 0,
+                statsFrames * 1000000.0 / (now - statsStart));
+        statsStart = now;
+        statsFrames = 0;
+    }
 }
 
 } // namespace
 
-void __cdecl main() {
-    XSetThreadProcessor(GetCurrentThread(), 0); // emulator on core 0
-    logOpen();
-    if (!videoInit()) { quit(); return; }
-    createFolders();
-    mountDrives();
+// ---------------------------------------------------------------- ConsoleUI
 
-    std::string folder = loadLastFolder();
-    if (folder.empty() || !folderExists(folder)) folder = kRomsFolder;
-    logLine("Browser starts in %s", folder.c_str());
+uint32_t ConsoleUI::defaultKeys[] = {
+    XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START,
+    XINPUT_GAMEPAD_DPAD_RIGHT | kLeftRight, XINPUT_GAMEPAD_DPAD_LEFT | kLeftLeft,
+    XINPUT_GAMEPAD_DPAD_UP | kLeftUp, XINPUT_GAMEPAD_DPAD_DOWN | kLeftDown,
+    XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y,
+    XINPUT_GAMEPAD_RIGHT_THUMB, // menu: right stick click
+    kLeftTrigger,               // fast-forward while held
+    0,                          // fast-forward toggle: unbound
+    XINPUT_GAMEPAD_LEFT_THUMB   // swap screens: left stick click
+};
 
-    Choice choice;
-    while (browse(&folder, &choice)) {
-        saveLastFolder(folder);
-        runGame(choice);
-        waitForRelease(menuPanel); // Back+Start may still be held
+const char *ConsoleUI::keyNames[] = {
+    "Up", "Down", "Left", "Right", "Start", "Back", "LS Click", "RS Click",
+    "LB", "RB", "", "", "A", "B", "X", "Y",
+    "LT", "RT", "LS Up", "LS Down", "LS Left", "LS Right", "RS Up", "RS Down",
+    "RS Left", "RS Right", "", "", "", "", "", ""
+};
+
+void ConsoleUI::startFrame(uint32_t color) {
+    // ConsoleUI colors are 0xAABBGGRR; Clear takes 0xAARRGGBB.
+    device->Clear(0, NULL, D3DCLEAR_TARGET,
+                  (color & 0xFF00FF00) | ((color & 0xFF) << 16) | ((color >> 16) & 0xFF), 1.0f, 0);
+    device->BeginScene();
+    device->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE); // positions are in pixels
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    device->SetVertexDeclaration(vertexDecl);
+    device->SetVertexShader(vertexShader);
+    device->SetPixelShader(pixelShader);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+}
+
+void ConsoleUI::endFrame() {
+    // Touch cursor: a small cross, only while the game is asking for touch.
+    if (cursorFrame == frameNumber) {
+        const ScreenLayout &l = ConsoleUI::layout;
+        float x = l.botX + (cursorX + 0.5f) * l.botWidth / 256;
+        float y = l.botY + (cursorY + 0.5f) * l.botHeight / 192;
+        drawRectangle(x - 7, y - 1, 15, 3, 0xFF000000);
+        drawRectangle(x - 1, y - 7, 3, 15, 0xFF000000);
+        drawRectangle(x - 6, y, 13, 1, 0xFFFFFFFF);
+        drawRectangle(x, y - 6, 1, 13, 0xFFFFFFFF);
     }
-    quit();
+    device->EndScene();
+    frameFences[frameNumber & 7] = device->InsertFence();
+    device->Present(NULL, NULL, NULL, NULL);
+    frameNumber++;
+    scanned = false;
+    logStats();
+}
+
+void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
+    // Reuse a released texture of the same size (the game screens are
+    // recreated every frame), or make a new one.
+    Texture *texture = 0;
+    for (size_t i = 0; i < freeTextures.size(); i++) {
+        // Not one drawn in this frame: its fence does not exist yet.
+        if (freeTextures[i]->width == width && freeTextures[i]->height == height &&
+            freeTextures[i]->usedFrame != frameNumber) {
+            texture = freeTextures[i];
+            freeTextures.erase(freeTextures.begin() + i);
+            waitForGpu(texture);
+            break;
+        }
+    }
+    if (!texture) {
+        texture = new Texture;
+        texture->width = width;
+        texture->height = height;
+        texture->usedFrame = 0;
+        if (FAILED(device->CreateTexture(width, height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT,
+                                         &texture->d3d, NULL))) {
+            logLine("CreateTexture %dx%d failed", width, height);
+            texture->d3d = 0;
+            return texture;
+        }
+    }
+    device->SetTexture(0, NULL);
+    D3DLOCKED_RECT locked;
+    if (texture->d3d && SUCCEEDED(texture->d3d->LockRect(0, &locked, NULL, 0))) {
+        for (int y = 0; y < height; y++)
+            memcpy((BYTE*)locked.pBits + y * locked.Pitch, &data[y * width], width * 4);
+        texture->d3d->UnlockRect(0);
+    }
+    return texture;
+}
+
+void ConsoleUI::destroyTexture(void *pointer) {
+    Texture *texture = (Texture*)pointer;
+    if (freeTextures.size() < 16) {
+        freeTextures.push_back(texture);
+        return;
+    }
+    waitForGpu(texture); // never free what the GPU may still read
+    if (texture->d3d) texture->d3d->Release();
+    delete texture;
+}
+
+void ConsoleUI::drawTexture(void *pointer, float tx, float ty, float tw, float th,
+    float x, float y, float w, float h, bool filter, int rotation, uint32_t color) {
+    Texture *texture = (Texture*)pointer;
+    if (!texture->d3d) return;
+    float s1 = tx / texture->width, t1 = ty / texture->height;
+    float s2 = (tx + tw) / texture->width, t2 = (ty + th) / texture->height;
+    // Texture coordinates of the corners top-left, top-right, bottom-right,
+    // bottom-left for each rotation (as in NooDS's main_wiiu.cpp).
+    const float corners[3][8] = {
+        { s1, t1, s2, t1, s2, t2, s1, t2 }, // none
+        { s1, t2, s1, t1, s2, t1, s2, t2 }, // clockwise
+        { s2, t1, s2, t2, s1, t2, s1, t1 }  // counter-clockwise
+    };
+    const float *c = corners[rotation < 0 || rotation > 2 ? 0 : rotation];
+    x -= 0.5f;
+    y -= 0.5f;
+    QuadVertex quad[4] = { // triangle strip: top-left, top-right, bottom-left, bottom-right
+        { x, y, 0.0f, 1.0f, c[0], c[1] },
+        { x + w, y, 0.0f, 1.0f, c[2], c[3] },
+        { x, y + h, 0.0f, 1.0f, c[6], c[7] },
+        { x + w, y + h, 0.0f, 1.0f, c[4], c[5] }
+    };
+    const float tint[4] = { (color & 0xFF) / 255.0f, ((color >> 8) & 0xFF) / 255.0f,
+                            ((color >> 16) & 0xFF) / 255.0f, (color >> 24) / 255.0f };
+    device->SetPixelShaderConstantF(0, tint, 1);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, filter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, filter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+    device->SetTexture(0, texture->d3d);
+    device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(QuadVertex));
+    texture->usedFrame = frameNumber;
+}
+
+uint32_t ConsoleUI::getInputHeld() {
+    scanPad();
+    const int stick = 16000;
+    uint32_t held = pad.wButtons;
+    if (pad.bLeftTrigger > 64) held |= kLeftTrigger;
+    if (pad.bRightTrigger > 64) held |= kRightTrigger;
+    if (pad.sThumbLY > stick) held |= kLeftUp;
+    if (pad.sThumbLY < -stick) held |= kLeftDown;
+    if (pad.sThumbLX < -stick) held |= kLeftLeft;
+    if (pad.sThumbLX > stick) held |= kLeftRight;
+    if (pad.sThumbRY > stick) held |= kRightUp;
+    if (pad.sThumbRY < -stick) held |= kRightDown;
+    if (pad.sThumbRX < -stick) held |= kRightLeft;
+    if (pad.sThumbRX > stick) held |= kRightRight;
+    return held;
+}
+
+MenuTouch ConsoleUI::getInputTouch() {
+    return MenuTouch(false, 0, 0); // no touch screen; the game uses xboxTouch
+}
+
+// ---------------------------------------------------------------- main
+
+void __cdecl main() {
+    XSetThreadProcessor(GetCurrentThread(), 5); // menus and drawing
+    logOpen();
+    if (!videoInit()) {
+        XLaunchNewImage("", 0);
+        return;
+    }
+    mountDrive("\\??\\hdd:", "\\Device\\Harddisk0\\Partition1");
+    mountDrive("\\??\\usb0:", "\\Device\\Mass0");
+    mountDrive("\\??\\usb1:", "\\Device\\Mass1");
+    mountDrive("\\??\\usb2:", "\\Device\\Mass2");
+    mkdir("/game:/roms"); // NooDS makes saves, states and cheats itself
+
+    // Hardware threads, in the order NooDS starts its threads: emulator 0,
+    // then saves/3D workers on 1-4. Menus run on 5 and audio on 1.
+    static const int processors[5] = { 0, 1, 2, 3, 4 };
+    xds::setThreadProcessors(processors, 5);
+
+    // Defaults for a first run (noods.ini overrides them afterwards).
+    // The settings menu only knows 0-2 threads; 2D threads are created every frame, too costly here.
+    Settings::threaded3D = 2;
+    Settings::threaded2D = 0;
+    Settings::savesFolder = 1;
+
+    paintXboxButtons(_binary_src_ui_console_images_font_bmp_start);
+    audioInit();
+    ConsoleUI::initialize(kWidth, kHeight, "/game:/roms", "/game:");
+    if (Settings::threaded3D > 2) Settings::threaded3D = 2; // an old noods.ini would crash the menu
+    logLine("Settings: threaded3D=%d fpsLimiter=%d savesFolder=%d", Settings::threaded3D,
+            Settings::fpsLimiter, Settings::savesFolder);
+    ConsoleUI::fileBrowser();
+    ConsoleUI::mainLoop(xboxTouch);
+
+    logLine("Leaving to the dashboard");
+    if (logFile) fclose(logFile);
+    XLaunchNewImage("", 0);
 }

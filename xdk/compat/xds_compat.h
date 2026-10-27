@@ -2,6 +2,7 @@
 // Replacements for GCC-only features used by NooDS, included from defines.h.
 #pragma once
 
+#include <cstdio>
 #include <new>
 #include <string.h>
 
@@ -19,11 +20,11 @@
 #define XDS_BSWAP64(x) __builtin_bswap64(x)
 #endif
 
-// Folder separator in file paths: the Xbox 360 only accepts "\\".
-#if defined(_XBOX)
-#define XDS_SLASH "\\"
-#else
-#define XDS_SLASH "/"
+// NooDS builds paths with "/"; on the Xbox, xds_files.cpp turns them into
+// "game:\x" paths before opening.
+#if defined(_XBOX) || defined(XDS_SIM)
+FILE *xdsFopen(const char *path, const char *mode);
+#define fopen xdsFopen
 #endif
 
 // A fixed array of objects that have no default constructor. VS2010 cannot

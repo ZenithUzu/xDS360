@@ -11,7 +11,7 @@ cd "$repo_root"
 
 flags=(-std=c++11 -fsyntax-only -fms-extensions -Wc++98-compat -Wno-c++98-compat-local-type-template-args
        -D_XBOX -D_MSC_VER=1600 -Dmain=xdkMain -DNDEBUG -DLOG_LEVEL=0 -DNOODS_XENON=1 -DENDIAN_BIG=1 -DNO_FDOPEN=1
-       -include tools/xdk/fake_xdk/fake_crt.h -Itools/xdk/fake_xdk -Ixdk/compat -Ixdk/noods)
+       -include tools/xdk/fake_xdk/fake_crt.h -Itools/xdk/fake_xdk -Ixdk/compat -Ixdk/noods/core)
 
 # The XDK entry point is "void main()", which clang rejects; it is renamed
 # only for this check.

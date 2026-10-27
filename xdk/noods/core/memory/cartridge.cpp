@@ -40,11 +40,11 @@ bool Cartridge::setRom(std::string romPath, int romFd, int saveFd, int stateFd, 
 
     // Relocate files to separate folders if enabled
     if (Settings::savesFolder)
-        savePath = Settings::basePath + XDS_SLASH "saves" + savePath.substr(savePath.find_last_of("/\\"));
+        savePath = Settings::basePath + "/saves" + savePath.substr(savePath.find_last_of("/\\"));
     if (Settings::statesFolder)
-        statePath = Settings::basePath + XDS_SLASH "states" + statePath.substr(statePath.find_last_of("/\\"));
+        statePath = Settings::basePath + "/states" + statePath.substr(statePath.find_last_of("/\\"));
     if (Settings::cheatsFolder)
-        cheatPath = Settings::basePath + XDS_SLASH "cheats" + cheatPath.substr(cheatPath.find_last_of("/\\"));
+        cheatPath = Settings::basePath + "/cheats" + cheatPath.substr(cheatPath.find_last_of("/\\"));
 
     // Load files using paths or descriptors if provided
     bool gba = (this == &core->cartridgeGba);

@@ -11,6 +11,8 @@ class thread {
 public:
     thread(): task_(0), handle_(0) {}
 
+    explicit thread(void (*function)()): task_(new FunctionTask(function)), handle_(0) { start(); }
+
     template <typename Class>
     thread(void (Class::*function)(), Class *object):
         task_(new MemberTask0<Class>(function, object)), handle_(0) { start(); }
@@ -36,6 +38,14 @@ private:
     public:
         virtual ~Task() {}
         virtual void run() = 0;
+    };
+
+    class FunctionTask: public Task {
+    public:
+        explicit FunctionTask(void (*function)()): function_(function) {}
+        void run() { function_(); }
+    private:
+        void (*function_)();
     };
 
     template <typename Class>

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Platform layer for the std:: replacements: Xbox 360 XDK, or POSIX for PC tests.
 #include "xds_platform.h"
-#include "xds_unistd.h"
 
 #if defined(_XBOX)
 #include <xtl.h>
@@ -14,16 +13,27 @@
 namespace xds {
 namespace {
 
-// Hardware threads for NooDS's own threads, in creation order. Core 0 runs the
-// emulator; its SMT sibling (1) is left free so they do not compete.
+// Hardware threads for the threads NooDS starts. A new thread takes the first
+// free one and gives it back when joined, so threads that come and go (the 3D
+// workers are recreated when settings change) always land on the same ones.
 int processors[6] = { 2, 3, 4, 5 };
 int processorCount = 4;
-int nextProcessor = 0;
+volatile long slotInUse[6];
 
 struct Start {
     ThreadEntry entry;
     void *argument;
 };
+
+int takeSlot() {
+    for (int i = 0; i < processorCount; i++)
+        if (atomicExchange(&slotInUse[i], 1) == 0) return i;
+    return -1; // more threads than listed: let the system place it
+}
+
+void freeSlot(int slot) {
+    if (slot >= 0) atomicExchange(&slotInUse[slot], 0);
+}
 
 } // namespace
 
@@ -33,7 +43,6 @@ void setThreadProcessors(const int *list, int count) {
     for (int i = 0; i < count; i++)
         processors[i] = list[i];
     processorCount = count;
-    nextProcessor = 0;
 }
 
 #if defined(_XBOX)
@@ -49,6 +58,11 @@ DWORD WINAPI threadMain(LPVOID parameter) {
 }
 } // namespace
 
+struct Thread {
+    HANDLE handle;
+    int slot;
+};
+
 void *threadStart(ThreadEntry entry, void *argument) {
     Start *start = new Start;
     start->entry = entry;
@@ -60,17 +74,22 @@ void *threadStart(ThreadEntry entry, void *argument) {
         entry(argument); // no thread available: run it here so nothing is lost
         return 0;
     }
-    XSetThreadProcessor(handle, processors[nextProcessor]);
-    nextProcessor = (nextProcessor + 1) % processorCount;
+    Thread *thread = new Thread;
+    thread->handle = handle;
+    thread->slot = takeSlot();
+    if (thread->slot >= 0) XSetThreadProcessor(handle, processors[thread->slot]);
     ResumeThread(handle);
-    return handle;
+    return thread;
 }
 
 void threadJoin(void *handle) {
     if (!handle) return;
-    WaitForSingleObject(static_cast<HANDLE>(handle), INFINITE);
-    CloseHandle(static_cast<HANDLE>(handle));
+    Thread *thread = static_cast<Thread*>(handle);
+    WaitForSingleObject(thread->handle, INFINITE);
+    CloseHandle(thread->handle);
     MemoryBarrier();
+    freeSlot(thread->slot);
+    delete thread;
 }
 
 void *mutexCreate() {
@@ -108,10 +127,6 @@ long atomicExchange(volatile long *target, long value) {
 
 } // namespace xds
 
-int xdsMakeDirectory(const char *path) {
-    return CreateDirectoryA(path, NULL) ? 0 : -1;
-}
-
 #else // POSIX, for tests on a PC
 
 namespace {
@@ -123,18 +138,23 @@ void *threadMain(void *parameter) {
 }
 } // namespace
 
+struct Thread {
+    pthread_t handle;
+    int slot;
+};
+
 void *threadStart(ThreadEntry entry, void *argument) {
     Start *start = new Start;
     start->entry = entry;
     start->argument = argument;
-    pthread_t *thread = new pthread_t;
-    if (pthread_create(thread, 0, threadMain, start) != 0) {
+    Thread *thread = new Thread;
+    if (pthread_create(&thread->handle, 0, threadMain, start) != 0) {
         delete start;
         delete thread;
         entry(argument);
         return 0;
     }
-    nextProcessor = (nextProcessor + 1) % processorCount;
+    thread->slot = takeSlot(); // only bookkeeping on a PC
     return thread;
 }
 
@@ -142,8 +162,10 @@ void threadYield() { sched_yield(); }
 
 void threadJoin(void *handle) {
     if (!handle) return;
-    pthread_join(*static_cast<pthread_t*>(handle), 0);
-    delete static_cast<pthread_t*>(handle);
+    Thread *thread = static_cast<Thread*>(handle);
+    pthread_join(thread->handle, 0);
+    freeSlot(thread->slot);
+    delete thread;
 }
 
 void *mutexCreate() {

@@ -3,113 +3,123 @@
   <ItemGroup>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="compat\xds_platform.cpp">
+    <ClCompile Include="compat\xds_files.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="frontend\emu.cpp">
+    <ClCompile Include="compat\xds_platform.cpp">
       <Filter></Filter>
     </ClCompile>
     <ClCompile Include="frontend\main.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\cp15.cpp">
+    <ClCompile Include="noods\core\core.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\interpreter.cpp">
+    <ClCompile Include="noods\core\save_states.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\interpreter_alu.cpp">
+    <ClCompile Include="noods\core\settings.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\interpreter_branch.cpp">
+    <ClCompile Include="noods\core\arm\cp15.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\interpreter_lookup.cpp">
+    <ClCompile Include="noods\core\arm\interpreter.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\interpreter_transfer.cpp">
+    <ClCompile Include="noods\core\arm\interpreter_alu.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\arm\timers.cpp">
+    <ClCompile Include="noods\core\arm\interpreter_branch.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\core.cpp">
+    <ClCompile Include="noods\core\arm\interpreter_lookup.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\gpu\gpu.cpp">
+    <ClCompile Include="noods\core\arm\interpreter_transfer.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\gpu\gpu_2d.cpp">
+    <ClCompile Include="noods\core\arm\timers.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\gpu\gpu_3d.cpp">
+    <ClCompile Include="noods\core\gpu\gpu.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\gpu\gpu_3d_renderer.cpp">
+    <ClCompile Include="noods\core\gpu\gpu_2d.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\hle\action_replay.cpp">
+    <ClCompile Include="noods\core\gpu\gpu_3d.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\hle\dldi.cpp">
+    <ClCompile Include="noods\core\gpu\gpu_3d_renderer.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\hle\hle_arm7.cpp">
+    <ClCompile Include="noods\core\hle\action_replay.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\hle\hle_bios.cpp">
+    <ClCompile Include="noods\core\hle\dldi.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\aes.cpp">
+    <ClCompile Include="noods\core\hle\hle_arm7.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\div_sqrt.cpp">
+    <ClCompile Include="noods\core\hle\hle_bios.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\i2c.cpp">
+    <ClCompile Include="noods\core\io\aes.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\input.cpp">
+    <ClCompile Include="noods\core\io\div_sqrt.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\ipc.cpp">
+    <ClCompile Include="noods\core\io\i2c.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\rtc.cpp">
+    <ClCompile Include="noods\core\io\input.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\spi.cpp">
+    <ClCompile Include="noods\core\io\ipc.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\spu.cpp">
+    <ClCompile Include="noods\core\io\rtc.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\io\wifi.cpp">
+    <ClCompile Include="noods\core\io\spi.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\memory\cartridge.cpp">
+    <ClCompile Include="noods\core\io\spu.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\memory\dma.cpp">
+    <ClCompile Include="noods\core\io\wifi.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\memory\memory.cpp">
+    <ClCompile Include="noods\core\memory\cartridge.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\memory\ndma.cpp">
+    <ClCompile Include="noods\core\memory\dma.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\memory\sd_mmc.cpp">
+    <ClCompile Include="noods\core\memory\memory.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\save_states.cpp">
+    <ClCompile Include="noods\core\memory\ndma.cpp">
       <Filter></Filter>
     </ClCompile>
-    <ClCompile Include="noods\settings.cpp">
+    <ClCompile Include="noods\core\memory\sd_mmc.cpp">
       <Filter></Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
+    <ClCompile Include="noods\ui\nds_icon.cpp">
+      <Filter></Filter>
+    </ClCompile>
+    <ClCompile Include="noods\ui\screen_layout.cpp">
+      <Filter></Filter>
+    </ClCompile>
+    <ClCompile Include="noods\ui\console\console_ui.cpp">
+      <Filter></Filter>
+    </ClCompile>
+    <ClCompile Include="noods\ui\console\images.cpp">
+      <Filter></Filter>
+    </ClCompile>
     <ClInclude Include="compat\atomic">
       <Filter></Filter>
     </ClInclude>
@@ -134,97 +144,103 @@
     <ClInclude Include="compat\xds_unistd.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="frontend\emu.h">
+    <ClInclude Include="noods\LICENSE">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="frontend\font8x8_basic.h">
+    <ClInclude Include="noods\core\core.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\arm\cp15.h">
+    <ClInclude Include="noods\core\defines.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\arm\interpreter.h">
+    <ClInclude Include="noods\core\save_states.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\arm\timers.h">
+    <ClInclude Include="noods\core\settings.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\core.h">
+    <ClInclude Include="noods\core\arm\cp15.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\defines.h">
+    <ClInclude Include="noods\core\arm\interpreter.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\gpu\gpu.h">
+    <ClInclude Include="noods\core\arm\timers.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\gpu\gpu_2d.h">
+    <ClInclude Include="noods\core\gpu\gpu.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\gpu\gpu_3d.h">
+    <ClInclude Include="noods\core\gpu\gpu_2d.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\gpu\gpu_3d_renderer.h">
+    <ClInclude Include="noods\core\gpu\gpu_3d.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\hle\action_replay.h">
+    <ClInclude Include="noods\core\gpu\gpu_3d_renderer.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\hle\dldi.h">
+    <ClInclude Include="noods\core\hle\action_replay.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\hle\hle_arm7.h">
+    <ClInclude Include="noods\core\hle\dldi.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\hle\hle_bios.h">
+    <ClInclude Include="noods\core\hle\hle_arm7.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\aes.h">
+    <ClInclude Include="noods\core\hle\hle_bios.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\div_sqrt.h">
+    <ClInclude Include="noods\core\io\aes.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\i2c.h">
+    <ClInclude Include="noods\core\io\div_sqrt.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\input.h">
+    <ClInclude Include="noods\core\io\i2c.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\ipc.h">
+    <ClInclude Include="noods\core\io\input.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\rtc.h">
+    <ClInclude Include="noods\core\io\ipc.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\spi.h">
+    <ClInclude Include="noods\core\io\rtc.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\spu.h">
+    <ClInclude Include="noods\core\io\spi.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\io\wifi.h">
+    <ClInclude Include="noods\core\io\spu.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\memory\cartridge.h">
+    <ClInclude Include="noods\core\io\wifi.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\memory\dma.h">
+    <ClInclude Include="noods\core\memory\cartridge.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\memory\memory.h">
+    <ClInclude Include="noods\core\memory\dma.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\memory\ndma.h">
+    <ClInclude Include="noods\core\memory\memory.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\memory\sd_mmc.h">
+    <ClInclude Include="noods\core\memory\ndma.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\save_states.h">
+    <ClInclude Include="noods\core\memory\sd_mmc.h">
       <Filter></Filter>
     </ClInclude>
-    <ClInclude Include="noods\settings.h">
+    <ClInclude Include="noods\ui\nds_icon.h">
+      <Filter></Filter>
+    </ClInclude>
+    <ClInclude Include="noods\ui\screen_layout.h">
+      <Filter></Filter>
+    </ClInclude>
+    <ClInclude Include="noods\ui\console\console_ui.h">
       <Filter></Filter>
     </ClInclude>
   </ItemGroup>

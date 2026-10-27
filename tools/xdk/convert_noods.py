@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Convert the pinned, Xbox-patched NooDS core into C++ that VS2010 accepts.
+"""Convert the pinned, Xbox-patched NooDS core and its console UI into C++
+that VS2010 accepts.
 
-Input:  third_party/noods/src/core (after scripts/fetch_noods.sh)
-Output: xdk/noods (committed, so the Windows build needs no scripts)
+Input:  third_party/noods/src (after scripts/fetch_noods.sh)
+Output: xdk/noods/core and xdk/noods/ui (committed, so the Windows build needs
+        no scripts). The UI's BMP images become C arrays in ui/console/images.cpp.
 
 VS2010 has no in-class member initializers (`int x = 0;` inside a class).
 Each one is moved into the member-initializer list of the class constructor
@@ -23,68 +25,89 @@ import sys
 import clang.cindex as ci
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-SRC = os.path.join(REPO, 'third_party', 'noods', 'src', 'core')
+SRC = os.path.join(REPO, 'third_party', 'noods', 'src')
 OUT = os.path.join(REPO, 'xdk', 'noods')
 SOURCES_MK = os.path.join(REPO, 'platform', 'xenon', 'noods_sources.mk')
 RESOURCE_DIR = os.popen('clang -print-resource-dir').read().strip()
 CLANG_ARGS = ['-resource-dir', RESOURCE_DIR, '-x', 'c++', '-std=c++11', '-DNOODS_XENON=1', '-DLOG_LEVEL=0',
-              '-DENDIAN_BIG=1', '-DNO_FDOPEN=1', '-I' + SRC]
+              '-DENDIAN_BIG=1', '-DNO_FDOPEN=1', '-include', 'cstdint', '-I' + os.path.join(SRC, 'core')]
+# The console UI (file browser, menus, screen layouts) used by NooDS on Wii U.
+UI_SOURCES = ['ui/screen_layout.cpp', 'ui/nds_icon.cpp', 'ui/console/console_ui.cpp']
+UI_FILES = UI_SOURCES + ['ui/screen_layout.h', 'ui/nds_icon.h', 'ui/console/console_ui.h']
+UI_IMAGES = ['file_dark', 'file_light', 'folder_dark', 'folder_light', 'font']
+
+VECTOR_LIST = re.compile(r'((?:const )?)std::vector<([\w:]+)> (\w+) = \{(.*?)\};', re.S)
+VECTOR_ARRAY = (r'\1\2 \3Items[] = {\4};\n    \1std::vector<\2> \3(\3Items, '
+                r'\3Items + sizeof(\3Items) / sizeof(\3Items[0]));')
 
 # Text fixes that the member-initializer pass cannot express. Each pattern must
 # match exactly the given number of times.
 TEXT_FIXES = [
     # GCC builtins and attributes -> portable helpers from xds_compat.h.
-    ('defines.h', '#include <cstdio>\n', '#include <cstdio>\n#include "xds_compat.h"\n', 1),
-    ('defines.h', '__builtin_memcpy', 'memcpy', 4),
-    ('defines.h', '__builtin_bswap16', 'XDS_BSWAP16', 3),
-    ('defines.h', '__builtin_bswap32', 'XDS_BSWAP32', 4),
-    ('defines.h', '__builtin_bswap64', 'XDS_BSWAP64', 1),
-    ('defines.h', 'typedef uint16_t AliasUint16 __attribute__((may_alias));',
+    ('core/defines.h', '#include <cstdio>\n', '#include <cstdint>\n#include <cstdio>\n#include "xds_compat.h"\n', 1),
+    ('core/defines.h', '__builtin_memcpy', 'memcpy', 4),
+    ('core/defines.h', '__builtin_bswap16', 'XDS_BSWAP16', 3),
+    ('core/defines.h', '__builtin_bswap32', 'XDS_BSWAP32', 4),
+    ('core/defines.h', '__builtin_bswap64', 'XDS_BSWAP64', 1),
+    ('core/defines.h', 'typedef uint16_t AliasUint16 __attribute__((may_alias));',
      'typedef uint16_t AliasUint16;', 1),
-    ('defines.h', 'typedef uint32_t AliasUint32 __attribute__((may_alias));',
+    ('core/defines.h', 'typedef uint32_t AliasUint32 __attribute__((may_alias));',
      'typedef uint32_t AliasUint32;', 1),
-    ('defines.h', '#include <unistd.h>', '#include "xds_unistd.h"', 1),
+    ('core/defines.h', '#include <unistd.h>', '#include "xds_unistd.h"', 1),
     # VS2010 only has std::to_string(long long / unsigned long long / long double).
-    ('settings.cpp', 'std::to_string(*(int*)settings[i].value)',
+    ('core/settings.cpp', 'std::to_string(*(int*)settings[i].value)',
      'std::to_string((long long)*(int*)settings[i].value)', 1),
-    ('memory/cartridge.cpp', 'std::to_string(core->id + 1)',
+    ('core/memory/cartridge.cpp', 'std::to_string(core->id + 1)',
      'std::to_string((long long)(core->id + 1))', 2),
-    ('settings.cpp', '#include <sys/stat.h>', '#include "xds_unistd.h"', 1),
+    ('core/settings.cpp', '#include <sys/stat.h>', '#include "xds_unistd.h"', 1),
     # Assigning an empty braced list to a container is C++11-only.
-    ('io/aes.cpp', 'writeFifo = {};', 'writeFifo.clear();', 1),
-    ('io/aes.cpp', 'readFifo = {};', 'readFifo.clear();', 1),
-    ('memory/sd_mmc.cpp', 'dataFifo32 = {};', 'dataFifo32.clear();', 1),
+    ('core/io/aes.cpp', 'writeFifo = {};', 'writeFifo.clear();', 1),
+    ('core/io/aes.cpp', 'readFifo = {};', 'readFifo.clear();', 1),
+    ('core/memory/sd_mmc.cpp', 'dataFifo32 = {};', 'dataFifo32.clear();', 1),
     # VS2010's math.h has float/double/long double overloads, so sqrt(integer)
     # is ambiguous. GCC converts the integer to double; do the same explicitly.
-    ('hle/hle_bios.cpp', '*registers[0] = sqrt(*registers[0]);',
+    ('core/hle/hle_bios.cpp', '*registers[0] = sqrt(*registers[0]);',
      '*registers[0] = sqrt((double)*registers[0]);', 1),
-    ('io/div_sqrt.cpp', 'sqrtResult = sqrt((uint32_t)sqrtParam);',
+    ('core/io/div_sqrt.cpp', 'sqrtResult = sqrt((uint32_t)sqrtParam);',
      'sqrtResult = sqrt((double)(uint32_t)sqrtParam);', 1),
-    # Save/state/cheat folders: the Xbox needs "\\" in paths (game:\\saves\\x.sav).
-    ('memory/cartridge.cpp', 'Settings::basePath + "/saves"', 'Settings::basePath + XDS_SLASH "saves"', 1),
-    ('memory/cartridge.cpp', 'Settings::basePath + "/states"', 'Settings::basePath + XDS_SLASH "states"', 1),
-    ('memory/cartridge.cpp', 'Settings::basePath + "/cheats"', 'Settings::basePath + XDS_SLASH "cheats"', 1),
     # A static std::vector filled from a braced list -> fill it from an array.
-    ('settings.cpp', re.compile(r'std::vector<Setting> Settings::settings = \{(.*?)\n\};\n', re.S),
+    ('core/settings.cpp', re.compile(r'std::vector<Setting> Settings::settings = \{(.*?)\n\};\n', re.S),
      lambda m: ('static Setting xdsSettingsInit[] = {%s\n};\nstd::vector<Setting> Settings::settings(xdsSettingsInit,\n'
                 '    xdsSettingsInit + sizeof(xdsSettingsInit) / sizeof(xdsSettingsInit[0]));\n'
                 % re.sub(r'&(\w+),', r'&Settings::\1,', m.group(1))), 1),
     # Arrays of objects without a default constructor -> XdsArray (built in place).
-    ('core.h', '    Dma dma[2];', '    XdsArray<Dma, 2> dma;', 1),
-    ('core.h', '    Gpu2D gpu2D[2];', '    XdsArray<Gpu2D, 2> gpu2D;', 1),
-    ('core.h', '    HleBios hleBios[3];', '    XdsArray<HleBios, 3> hleBios;', 1),
-    ('core.h', '    Interpreter interpreter[2];', '    XdsArray<Interpreter, 2> interpreter;', 1),
-    ('core.h', '    Ndma ndma[2];', '    XdsArray<Ndma, 2> ndma;', 1),
-    ('core.h', '    Timers timers[2];', '    XdsArray<Timers, 2> timers;', 1),
-    ('core.cpp', re.compile(r'dma \{ Dma\(this, 0\), Dma\(this, 1\) \}'), 'dma(this)', 1),
-    ('core.cpp', re.compile(r'gpu2D \{ Gpu2D\(this, 0\), Gpu2D\(this, 1\) \}'), 'gpu2D(this)', 1),
-    ('core.cpp', re.compile(r'interpreter \{ Interpreter\(\s*this, 0\), Interpreter\(this, 1\) \}'),
+    ('core/core.h', '    Dma dma[2];', '    XdsArray<Dma, 2> dma;', 1),
+    ('core/core.h', '    Gpu2D gpu2D[2];', '    XdsArray<Gpu2D, 2> gpu2D;', 1),
+    ('core/core.h', '    HleBios hleBios[3];', '    XdsArray<HleBios, 3> hleBios;', 1),
+    ('core/core.h', '    Interpreter interpreter[2];', '    XdsArray<Interpreter, 2> interpreter;', 1),
+    ('core/core.h', '    Ndma ndma[2];', '    XdsArray<Ndma, 2> ndma;', 1),
+    ('core/core.h', '    Timers timers[2];', '    XdsArray<Timers, 2> timers;', 1),
+    ('core/core.cpp', re.compile(r'dma \{ Dma\(this, 0\), Dma\(this, 1\) \}'), 'dma(this)', 1),
+    ('core/core.cpp', re.compile(r'gpu2D \{ Gpu2D\(this, 0\), Gpu2D\(this, 1\) \}'), 'gpu2D(this)', 1),
+    ('core/core.cpp', re.compile(r'interpreter \{ Interpreter\(\s*this, 0\), Interpreter\(this, 1\) \}'),
      'interpreter(this)', 1),
-    ('core.cpp', re.compile(r'ndma \{ Ndma\(this, 0\), Ndma\(this, 1\) \}'), 'ndma(this)', 1),
-    ('core.cpp', re.compile(r'timers \{ Timers\(this, 0\), Timers\(this, 1\) \}'), 'timers(this)', 1),
-    ('core.cpp', re.compile(r'hleBios \{ (HleBios\(this, 0, HleBios::swiTable9\)), HleBios\(this, 1, HleBios::\s*'
+    ('core/core.cpp', re.compile(r'ndma \{ Ndma\(this, 0\), Ndma\(this, 1\) \}'), 'ndma(this)', 1),
+    ('core/core.cpp', re.compile(r'timers \{ Timers\(this, 0\), Timers\(this, 1\) \}'), 'timers(this)', 1),
+    ('core/core.cpp', re.compile(r'hleBios \{ (HleBios\(this, 0, HleBios::swiTable9\)), HleBios\(this, 1, HleBios::\s*'
                             r'swiTable7\), (HleBios\(this, 1, HleBios::swiTableGba\)) \}'),
      r'hleBios(\1, HleBios(this, 1, HleBios::swiTable7), \2)', 1),
+    # Console UI.
+    # VS2010 has no delegating constructors; the other one takes a const char* too.
+    ('ui/nds_icon.h', '    NdsIcon(const char *path): NdsIcon(path, -1) {}\n', '', 1),
+    ('ui/console/console_ui.cpp', '#include <dirent.h>\n#include <sys/stat.h>\n', '#include "xds_unistd.h"\n', 1),
+    # The images are C arrays here (ui/console/images.cpp), not linker blobs.
+    ('ui/console/console_ui.cpp', re.compile(r'extern uint8_t (_binary_\w+_start);'), r'extern uint8_t \1[];', 5),
+    ('ui/console/console_ui.cpp', '(&_binary_src_ui_console_images_', '(_binary_src_ui_console_images_', 5),
+    # Button symbols (A, B, X, Start) keep their own colors instead of the text color.
+    ('ui/console/console_ui.cpp', 'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0, color);',
+     'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,\n'
+     '            (uint8_t)string[i] >= 0x80 ? 0xFFFFFFFF : color);', 1),
+    # Start in the given folder; B goes up to "" (the drive list on the Xbox).
+    ('ui/console/console_ui.cpp', '    basePath = curPath = root;', '    basePath = "";\n    curPath = root;', 1),
+    ('ui/console/console_ui.cpp', 'std::to_string(core->fps)', 'std::to_string((long long)core->fps)', 1),
+    # "std::vector<T> x = { a, b };" (C++11) -> an array, then the vector built from it.
+    ('ui/console/console_ui.cpp', VECTOR_LIST, VECTOR_ARRAY, 15),
+    ('ui/screen_layout.cpp', VECTOR_LIST, VECTOR_ARRAY, 1),
 ]
 
 
@@ -120,14 +143,15 @@ def collect(sources):
         while stack:
             c = stack.pop()
             f = c.location.file.name if c.location.file else None
-            if f and not os.path.abspath(f).startswith(SRC):
+            if f and not os.path.abspath(f).startswith(SRC + os.sep):
                 continue
             k = c.kind
             if k in (ci.CursorKind.CLASS_DECL, ci.CursorKind.STRUCT_DECL) and c.is_definition():
                 toks = list(c.get_tokens())
                 brace = next(t for t in toks if t.spelling == '{')
                 records[c.get_usr()] = dict(file=os.path.abspath(f), name=c.spelling,
-                                            brace=offset(brace.extent.start))
+                                            brace=offset(brace.extent.start),
+                                            is_class=k == ci.CursorKind.CLASS_DECL)
             elif k == ci.CursorKind.FIELD_DECL:
                 kids = list(c.get_children())
                 toks = list(c.get_tokens())
@@ -238,6 +262,9 @@ def plan(fields, ctors, records):
             init = ', '.join('%s(%s)' % (n, v) for n, v in list_items)
             body = ''.join(fill_code(n, vals, t) for n, vals, t in body_items)
             code = '\n    %s()%s {%s}\n' % (rec['name'], ': ' + init if init else '', body)
+            if rec['is_class']:  # a class starts private: open and close a public part
+                code = '\npublic:' + code + 'private:\n'
+
             edits.append((rec['file'], rec['brace'] + 1, 0, code))
             continue
         for c in rec_ctors:
@@ -277,14 +304,34 @@ def apply_edits(edits):
             f.write(text)
 
 
+def write_images():
+    """BMP images of the console UI as C arrays, named like the linker symbols."""
+    lines = ['// Generated by tools/xdk/convert_noods.py from NooDS src/ui/console/images (GPL-3.0).',
+             '#include <stdint.h>', '']
+    for name in UI_IMAGES:
+        with open(os.path.join(SRC, 'ui', 'console', 'images', name + '.bmp'), 'rb') as f:
+            data = f.read()
+        lines.append('uint8_t _binary_src_ui_console_images_%s_bmp_start[] = {' % name)
+        for i in range(0, len(data), 32):
+            lines.append(','.join(str(b) for b in data[i:i + 32]) + ',')
+        lines.append('};')
+        lines.append('')
+    with open(os.path.join(OUT, 'ui', 'console', 'images.cpp'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+
 def main():
     if not os.path.isdir(SRC):
         sys.exit('Run scripts/fetch_noods.sh first: %s is missing' % SRC)
-    sources = core_sources()
+    sources = ['core/' + s for s in core_sources()] + UI_SOURCES
     # Work on a fresh copy so offsets match what clang parses.
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
-    shutil.copytree(SRC, OUT, ignore=shutil.ignore_patterns('*.o', '*.d'))
+    shutil.copytree(os.path.join(SRC, 'core'), os.path.join(OUT, 'core'),
+                    ignore=shutil.ignore_patterns('*.o', '*.d'))
+    for rel in UI_FILES:
+        os.makedirs(os.path.dirname(os.path.join(OUT, rel)), exist_ok=True)
+        shutil.copy(os.path.join(SRC, rel), os.path.join(OUT, rel))
     fields, ctors, records = collect(sources)
     # Rebase the analysis from SRC onto the copy.
     def rebase(d):
@@ -312,6 +359,7 @@ def main():
             rel = os.path.relpath(os.path.join(dirpath, name), OUT).replace(os.sep, '/')
             if name.endswith('.cpp') and rel not in keep:
                 os.remove(os.path.join(dirpath, name))
+    write_images()
     shutil.copy(os.path.join(REPO, 'third_party', 'noods', 'LICENSE'), os.path.join(OUT, 'LICENSE'))
     print('fields moved: %d, constructors touched: %d, files: %s' % (
         len(fields), len({e[0] for e in edits}), OUT))
