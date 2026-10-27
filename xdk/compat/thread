@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The part of C++11 <thread> that NooDS uses (VS2010 has no <thread>):
+// threads that run a member function with no argument or one int.
+#pragma once
+
+#include "xds_platform.h"
+
+namespace std {
+
+class thread {
+public:
+    thread(): task_(0), handle_(0) {}
+
+    template <typename Class>
+    thread(void (Class::*function)(), Class *object):
+        task_(new MemberTask0<Class>(function, object)), handle_(0) { start(); }
+
+    template <typename Class>
+    thread(void (Class::*function)(int), Class *object, int argument):
+        task_(new MemberTask1<Class>(function, object, argument)), handle_(0) { start(); }
+
+    ~thread() { if (joinable()) join(); }
+
+    bool joinable() const { return task_ != 0; }
+
+    void join() {
+        if (!task_) return;
+        xds::threadJoin(handle_);
+        delete task_;
+        task_ = 0;
+        handle_ = 0;
+    }
+
+private:
+    class Task {
+    public:
+        virtual ~Task() {}
+        virtual void run() = 0;
+    };
+
+    template <typename Class>
+    class MemberTask0: public Task {
+    public:
+        MemberTask0(void (Class::*function)(), Class *object): function_(function), object_(object) {}
+        void run() { (object_->*function_)(); }
+    private:
+        void (Class::*function_)();
+        Class *object_;
+    };
+
+    template <typename Class>
+    class MemberTask1: public Task {
+    public:
+        MemberTask1(void (Class::*function)(int), Class *object, int argument):
+            function_(function), object_(object), argument_(argument) {}
+        void run() { (object_->*function_)(argument_); }
+    private:
+        void (Class::*function_)(int);
+        Class *object_;
+        int argument_;
+    };
+
+    static void entry(void *task) { static_cast<Task*>(task)->run(); }
+    void start() { handle_ = xds::threadStart(&thread::entry, task_); }
+
+    thread(const thread&);
+    thread &operator=(const thread&);
+
+    Task *task_;
+    void *handle_;
+};
+
+namespace this_thread {
+#if defined(_XBOX)
+// On the Xbox 360 each worker spins on its own hardware thread; only stop the
+// compiler from caching the value being waited on (as XenonDS does).
+inline void yield() { xds::compilerBarrier(); }
+#else
+// A PC may have fewer cores than threads: give the core away while waiting.
+inline void yield() { xds::threadYield(); }
+#endif
+} // namespace this_thread
+
+} // namespace std

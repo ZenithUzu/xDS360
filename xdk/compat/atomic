@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The part of C++11 <atomic> that NooDS uses (VS2010 has no <atomic>).
+// Only int and bool, stored as an aligned 32-bit value.
+#pragma once
+
+#include "xds_platform.h"
+
+namespace std {
+
+enum memory_order {
+    memory_order_relaxed,
+    memory_order_consume,
+    memory_order_acquire,
+    memory_order_release,
+    memory_order_acq_rel,
+    memory_order_seq_cst
+};
+
+template <typename T>
+class atomic {
+public:
+    atomic() {}
+    atomic(T value): value_((long)value) {}
+
+    T load(memory_order order = memory_order_seq_cst) const {
+        T result = (T)value_;
+        if (order != memory_order_relaxed) xds::barrier(); // acquire
+        else xds::compilerBarrier();
+        return result;
+    }
+
+    void store(T value, memory_order order = memory_order_seq_cst) {
+        if (order != memory_order_relaxed) xds::barrier(); // release
+        else xds::compilerBarrier();
+        value_ = (long)value;
+        if (order == memory_order_seq_cst) xds::barrier();
+    }
+
+    T exchange(T value, memory_order order = memory_order_seq_cst) {
+        if (order == memory_order_relaxed) {
+            // Only the owning thread writes this value in relaxed mode
+            // (Core::running on the emulation thread); keep it a plain swap.
+            T old = (T)value_;
+            value_ = (long)value;
+            xds::compilerBarrier();
+            return old;
+        }
+        return (T)xds::atomicExchange(&value_, (long)value);
+    }
+
+    operator T() const { return load(); }
+    T operator=(T value) { store(value); return value; }
+
+private:
+    atomic(const atomic&);
+    atomic &operator=(const atomic&);
+
+    volatile long value_;
+};
+
+} // namespace std

@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The part of C++11 <chrono> that NooDS uses (VS2010 has no <chrono>):
+// steady_clock, durations in seconds or microseconds, and comparing them.
+#pragma once
+
+#include "xds_platform.h"
+
+namespace std {
+
+template <long long Num, long long Den = 1>
+struct ratio {
+    static const long long num = Num;
+    static const long long den = Den;
+};
+
+typedef ratio<1, 1000000> micro;
+
+namespace chrono {
+
+template <typename Rep, typename Period = ratio<1> >
+class duration {
+public:
+    duration(): count_(0) {}
+    explicit duration(Rep count): count_(count) {}
+
+    template <typename Rep2, typename Period2>
+    duration(const duration<Rep2, Period2> &other):
+        count_((Rep)((double)other.count() * Period2::num * Period::den / (Period2::den * Period::num))) {}
+
+    Rep count() const { return count_; }
+
+private:
+    Rep count_;
+};
+
+typedef duration<long long, micro> microseconds;
+
+template <typename R1, typename P1, typename R2, typename P2>
+inline bool operator<(const duration<R1, P1> &a, const duration<R2, P2> &b) {
+    return (double)a.count() * P1::num * P2::den < (double)b.count() * P2::num * P1::den;
+}
+template <typename R1, typename P1, typename R2, typename P2>
+inline bool operator>(const duration<R1, P1> &a, const duration<R2, P2> &b) { return b < a; }
+template <typename R1, typename P1, typename R2, typename P2>
+inline bool operator<=(const duration<R1, P1> &a, const duration<R2, P2> &b) { return !(b < a); }
+template <typename R1, typename P1, typename R2, typename P2>
+inline bool operator>=(const duration<R1, P1> &a, const duration<R2, P2> &b) { return !(a < b); }
+
+class steady_clock {
+public:
+    class time_point {
+    public:
+        time_point(): us_(0) {}
+        explicit time_point(long long us): us_(us) {}
+        microseconds operator-(const time_point &other) const { return microseconds(us_ - other.us_); }
+    private:
+        long long us_;
+    };
+
+    static time_point now() { return time_point(xds::clockMicroseconds()); }
+};
+
+} // namespace chrono
+} // namespace std

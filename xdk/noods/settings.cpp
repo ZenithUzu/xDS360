@@ -1,0 +1,146 @@
+/*
+    Copyright 2019-2026 Hydr8gon
+
+    This file is part of NooDS.
+
+    NooDS is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    NooDS is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+    General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with NooDS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+#include "xds_unistd.h"
+#include "core.h"
+
+int Settings::directBoot = 1;
+int Settings::romInRam = 0;
+int Settings::fpsLimiter = 1;
+int Settings::frameskip = 0;
+int Settings::threaded2D = 1;
+int Settings::threaded3D = 1;
+int Settings::highRes3D = 0;
+int Settings::screenGhost = 0;
+int Settings::emulateAudio = 1;
+int Settings::audio16Bit = 1;
+int Settings::savesFolder = 0;
+int Settings::statesFolder = 1;
+int Settings::cheatsFolder = 1;
+int Settings::screenFilter = 2;
+int Settings::dsiMode = 0;
+int Settings::arm7Hle = 0;
+
+std::string Settings::gbaBiosPath = "gba_bios.bin";
+std::string Settings::ndsBios9Path = "bios9.bin";
+std::string Settings::ndsBios7Path = "bios7.bin";
+std::string Settings::ndsFirmPath = "firmware.bin";
+std::string Settings::dsiBios9Path = "bios9i.bin";
+std::string Settings::dsiBios7Path = "bios7i.bin";
+std::string Settings::dsiFirmPath = "firmwarei.bin";
+std::string Settings::dsiNandPath = "nand.bin";
+std::string Settings::sdImagePath = "sd.img";
+std::string Settings::basePath = ".";
+
+static Setting xdsSettingsInit[] = {
+    Setting("directBoot", &Settings::directBoot, false),
+    Setting("romInRam", &Settings::romInRam, false),
+    Setting("fpsLimiter", &Settings::fpsLimiter, false),
+    Setting("frameskip", &Settings::frameskip, false),
+    Setting("threaded2D", &Settings::threaded2D, false),
+    Setting("threaded3D", &Settings::threaded3D, false),
+    Setting("highRes3D", &Settings::highRes3D, false),
+    Setting("screenGhost", &Settings::screenGhost, false),
+    Setting("emulateAudio", &Settings::emulateAudio, false),
+    Setting("audio16Bit", &Settings::audio16Bit, false),
+    Setting("savesFolder", &Settings::savesFolder, false),
+    Setting("statesFolder", &Settings::statesFolder, false),
+    Setting("cheatsFolder", &Settings::cheatsFolder, false),
+    Setting("screenFilter", &Settings::screenFilter, false),
+    Setting("dsiMode", &Settings::dsiMode, false),
+    Setting("arm7Hle", &Settings::arm7Hle, false),
+    Setting("gbaBiosPath", &Settings::gbaBiosPath, true),
+    Setting("ndsBios9Path", &Settings::ndsBios9Path, true),
+    Setting("ndsBios7Path", &Settings::ndsBios7Path, true),
+    Setting("ndsFirmPath", &Settings::ndsFirmPath, true),
+    Setting("dsiBios9Path", &Settings::dsiBios9Path, true),
+    Setting("dsiBios7Path", &Settings::dsiBios7Path, true),
+    Setting("dsiFirmPath", &Settings::dsiFirmPath, true),
+    Setting("dsiNandPath", &Settings::dsiNandPath, true),
+    Setting("sdImagePath", &Settings::sdImagePath, true)
+};
+std::vector<Setting> Settings::settings(xdsSettingsInit,
+    xdsSettingsInit + sizeof(xdsSettingsInit) / sizeof(xdsSettingsInit[0]));
+
+void Settings::add(std::vector<Setting> &settings) {
+    // Add additional settings to be loaded from the settings file
+    Settings::settings.insert(Settings::settings.end(), settings.begin(), settings.end());
+}
+
+bool Settings::load(std::string path) {
+    // Set the base path and ensure all folders exist
+    mkdir((basePath = path).c_str() MKDIR_ARGS);
+    mkdir((basePath + "/saves").c_str() MKDIR_ARGS);
+    mkdir((basePath + "/states").c_str() MKDIR_ARGS);
+    mkdir((basePath + "/cheats").c_str() MKDIR_ARGS);
+
+    // Open the settings file or set defaults if it doesn't exist
+    FILE *file = fopen((basePath + "/noods.ini").c_str(), "r");
+    if (!file) {
+        gbaBiosPath = basePath + "/gba_bios.bin";
+        ndsBios9Path = basePath + "/bios9.bin";
+        ndsBios7Path = basePath + "/bios7.bin";
+        ndsFirmPath = basePath + "/firmware.bin";
+        dsiBios9Path = basePath + "/bios9i.bin";
+        dsiBios7Path = basePath + "/bios7i.bin";
+        dsiFirmPath = basePath + "/firmwarei.bin";
+        dsiNandPath = basePath + "/nand.bin";
+        sdImagePath = basePath + "/sd.img";
+        save();
+        return false;
+    }
+
+    // Read each line of the settings file and load values from them
+    char data[512];
+    while (fgets(data, 512, file) != nullptr) {
+        std::string line = data;
+        size_t split = line.find('=');
+        std::string name = line.substr(0, split);
+        for (size_t i = 0; i < settings.size(); i++) {
+            if (name != settings[i].name) continue;
+            std::string value = line.substr(split + 1, line.size() - split - 2);
+            if (settings[i].isString)
+                *(std::string*)settings[i].value = value;
+            else if (value[0] >= '0' && value[0] <= '9')
+                *(int*)settings[i].value = stoi(value);
+            break;
+        }
+    }
+
+    // Close the file after reading it
+    fclose(file);
+    return true;
+}
+
+bool Settings::save() {
+    // Attempt to open the settings file
+    FILE *file = fopen((basePath + "/noods.ini").c_str(), "w");
+    if (!file) return false;
+
+    // Write each setting to the settings file
+    for (size_t i = 0; i < settings.size(); i++) {
+        std::string value = settings[i].isString ?
+            *(std::string*)settings[i].value : std::to_string((long long)*(int*)settings[i].value);
+        fprintf(file, "%s=%s\n", settings[i].name.c_str(), value.c_str());
+    }
+
+    // Close the file after writing it
+    fclose(file);
+    return true;
+}

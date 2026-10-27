@@ -20,3 +20,13 @@
 *.nds
 *.dsv
 *.sav
+
+# Visual Studio 2010 / XDK build output (xdk/xds360.sln)
+/xdk/Debug/
+/xdk/Release/
+/xdk/obj/
+/xdk/ipch/
+*.suo
+*.sdf
+*.opensdf
+*.user

@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The part of C++11 <mutex> that NooDS uses (VS2010 has no <mutex>).
+#pragma once
+
+#include "xds_platform.h"
+
+namespace std {
+
+class mutex {
+public:
+    mutex(): handle_(xds::mutexCreate()) {}
+    ~mutex() { xds::mutexDestroy(handle_); }
+    void lock() { xds::mutexLock(handle_); }
+    bool try_lock() { return xds::mutexTryLock(handle_); }
+    void unlock() { xds::mutexUnlock(handle_); }
+
+private:
+    mutex(const mutex&);
+    mutex &operator=(const mutex&);
+    void *handle_;
+};
+
+template <typename Mutex>
+class lock_guard {
+public:
+    explicit lock_guard(Mutex &mutex): mutex_(mutex) { mutex_.lock(); }
+    ~lock_guard() { mutex_.unlock(); }
+
+private:
+    lock_guard(const lock_guard&);
+    lock_guard &operator=(const lock_guard&);
+    Mutex &mutex_;
+};
+
+template <typename Mutex>
+class unique_lock {
+public:
+    explicit unique_lock(Mutex &mutex): mutex_(&mutex), owns_(true) { mutex_->lock(); }
+    ~unique_lock() { if (owns_) mutex_->unlock(); }
+    void lock() { if (!owns_) { mutex_->lock(); owns_ = true; } }
+    void unlock() { if (owns_) { mutex_->unlock(); owns_ = false; } }
+    bool owns_lock() const { return owns_; }
+    Mutex *mutex() const { return mutex_; }
+
+private:
+    unique_lock(const unique_lock&);
+    unique_lock &operator=(const unique_lock&);
+    Mutex *mutex_;
+    bool owns_;
+};
+
+} // namespace std
