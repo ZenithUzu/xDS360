@@ -7,6 +7,13 @@
 
 #if defined(_XBOX) || defined(XDS_SIM)
 
+#if defined(_XBOX)
+// The XDK declares its own "struct stat" in <wchar.h>: include it now, before
+// the stat macro below, so a later <string> or <wchar.h> doesn't redeclare it
+// under our name.
+#include <wchar.h>
+#endif
+
 int xdsMakeDirectory(const char *path);
 inline int xdsMkdir(const char *path, int = 0) { return xdsMakeDirectory(path); }
 #define mkdir(...) xdsMkdir(__VA_ARGS__)
