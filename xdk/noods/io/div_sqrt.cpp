@@ -101,7 +101,7 @@ void DivSqrt::squareRoot() {
     // Calculate the square root result
     switch (sqrtCnt & 0x1) { // Square root mode
     case 0: // 32-bit
-        sqrtResult = sqrt((uint32_t)sqrtParam);
+        sqrtResult = sqrt((double)(uint32_t)sqrtParam);
         break;
 
     case 1: // 64-bit

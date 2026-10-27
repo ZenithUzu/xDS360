@@ -215,7 +215,7 @@ int HleBios::swiDivArm(uint32_t **registers) {
 
 int HleBios::swiSquareRoot(uint32_t **registers) {
     // Calculate the square root result
-    *registers[0] = sqrt(*registers[0]);
+    *registers[0] = sqrt((double)*registers[0]);
     return 3;
 }
 

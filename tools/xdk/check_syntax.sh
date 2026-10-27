@@ -28,6 +28,19 @@ for file in "${files[@]}"; do
         status=1
     fi
 done
+# C library functions the VS2010/XDK runtime does not have (strtoll and
+# strtoull are mapped in xdk/compat/xds_compat.h) (glibc on the PC
+# has them, so clang alone does not notice), and math calls on integers, which
+# are ambiguous there.
+missing='\b(llabs|lround|llround|round|trunc|fmin|fmax|cbrt|log2|exp2|nearbyint|copysign|snprintf|vsnprintf|strcasecmp|strncasecmp|va_copy|isnan|isinf|atoll|usleep)\s*\('
+ambiguous='\b(sqrt|pow|floor|ceil|log|exp|fabs)\s*\(\s*(\*|\(u?int)'
+found="$(grep -rnE "$missing|$ambiguous" xdk/noods xdk/frontend xdk/compat --include='*.cpp' --include='*.h' |
+         grep -vE '^\S+:[0-9]+:\s*(//|#define)' | grep -v 'PC tests' || true)"
+if [[ -n "$found" ]]; then
+    printf 'Not available or ambiguous in the VS2010 runtime:\n%s\n' "$found"
+    status=1
+fi
+
 if [[ $status -eq 0 ]]; then
     printf 'OK: %d files, no syntax errors and no C++11 that VS2010 rejects\n' "${#files[@]}"
 fi

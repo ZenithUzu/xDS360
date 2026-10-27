@@ -54,6 +54,12 @@ TEXT_FIXES = [
     ('io/aes.cpp', 'writeFifo = {};', 'writeFifo.clear();', 1),
     ('io/aes.cpp', 'readFifo = {};', 'readFifo.clear();', 1),
     ('memory/sd_mmc.cpp', 'dataFifo32 = {};', 'dataFifo32.clear();', 1),
+    # VS2010's math.h has float/double/long double overloads, so sqrt(integer)
+    # is ambiguous. GCC converts the integer to double; do the same explicitly.
+    ('hle/hle_bios.cpp', '*registers[0] = sqrt(*registers[0]);',
+     '*registers[0] = sqrt((double)*registers[0]);', 1),
+    ('io/div_sqrt.cpp', 'sqrtResult = sqrt((uint32_t)sqrtParam);',
+     'sqrtResult = sqrt((double)(uint32_t)sqrtParam);', 1),
     # A static std::vector filled from a braced list -> fill it from an array.
     ('settings.cpp', re.compile(r'std::vector<Setting> Settings::settings = \{(.*?)\n\};\n', re.S),
      lambda m: ('static Setting xdsSettingsInit[] = {%s\n};\nstd::vector<Setting> Settings::settings(xdsSettingsInit,\n'
