@@ -31,7 +31,6 @@ typedef struct { void *opaque[8]; } CRITICAL_SECTION;
 #define CREATE_SUSPENDED 0x4
 #define ERROR_SUCCESS 0L
 #define FILE_ATTRIBUTE_DIRECTORY 0x10
-#define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
 #define INVALID_HANDLE_VALUE ((HANDLE)(long)-1)
 #define FAILED(hr) (((HRESULT)(hr)) < 0)
 #define SUCCEEDED(hr) (((HRESULT)(hr)) >= 0)
