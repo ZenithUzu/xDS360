@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <chrono>
 #include "xds_unistd.h"
+#include "../../../frontend/xds_text.h"
 
 #include "console_ui.h"
 #include "../nds_icon.h"
@@ -88,17 +89,19 @@ void ConsoleUI::drawRectangle(float x, float y, float w, float h, uint32_t color
 }
 
 void ConsoleUI::drawString(std::string string, float x, float y, float size, uint32_t color, bool alignRight) {
-    // Set the initial offset based on alignment
+    // Translate, then set the initial offset based on alignment
+    string = xdsText(string);
     float offset = alignRight ? -stringWidth(string) : 0;
 
     // Move along a string and draw each character
     for (uint32_t i = 0; i < string.size(); i++) {
         float x1 = x + offset * size / 48;
-        float tx = 48.0f * (((uint8_t)string[i] - 32) % 10);
-        float ty = 48.0f * (((uint8_t)string[i] - 32) / 10);
+        int cell = xdsGlyph(string, i); // UTF-8 letters take more than one byte
+        float tx = 48.0f * (cell % 10);
+        float ty = 48.0f * (cell / 10);
         drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,
-            (uint8_t)string[i] >= 0x7F ? 0xFFFFFFFF : color);
-        offset += charWidths[(uint8_t)string[i] - 32];
+            (cell >= 0x7F - 32 && cell <= 0x83 - 32) ? 0xFFFFFFFF : color);
+        offset += xdsGlyphWidth(cell, charWidths);
     }
 }
 
@@ -153,7 +156,7 @@ int ConsoleUI::stringWidth(std::string &string) {
     // Add the widths of each character in a string
     int width = 0;
     for (uint32_t i = 0; i < string.size(); i++)
-        width += charWidths[(uint8_t)string[i] - 32];
+        width += xdsGlyphWidth(xdsGlyph(string, i), charWidths);
     return width;
 }
 
@@ -163,7 +166,7 @@ void ConsoleUI::initialize(int width, int height, std::string root, std::string 
     fileTextures[1] = bmpToTexture(_binary_src_ui_console_images_file_light_bmp_start);
     folderTextures[0] = bmpToTexture(_binary_src_ui_console_images_folder_dark_bmp_start);
     folderTextures[1] = bmpToTexture(_binary_src_ui_console_images_folder_light_bmp_start);
-    fontTexture = bmpToTexture(_binary_src_ui_console_images_font_bmp_start);
+    fontTexture = bmpToTexture(xdsFontBmp(_binary_src_ui_console_images_font_bmp_start));
 
     // Set the default input bindings
     for (int i = 0; i < INPUT_MAX; i++)
@@ -173,6 +176,7 @@ void ConsoleUI::initialize(int width, int height, std::string root, std::string 
     Setting platformSettingsItems[] = {
         Setting("showFpsCounter", &showFpsCounter, false),
         Setting("menuTheme", &menuTheme, false),
+        Setting("language", &xdsLanguage, false),
         Setting("keyA", &keyBinds[INPUT_A], false),
         Setting("keyB", &keyBinds[INPUT_B], false),
         Setting("keySelect", &keyBinds[INPUT_SELECT], false),
@@ -385,11 +389,11 @@ int ConsoleUI::setPath(std::string path) {
 uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
     int &index, std::string actionX, std::string actionPlus, std::string actionSelect) {
     // Define the action strings
-    if (actionSelect != "") actionSelect = "\x7F " + actionSelect + "     ";
-    if (actionPlus != "") actionPlus = "\x83 " + actionPlus + "     ";
-    if (actionX != "") actionX = "\x82 " + actionX + "     ";
-    std::string actionB = "\x81 Back     ";
-    std::string actionA = "\x80 OK";
+    if (actionSelect != "") actionSelect = "\x7F " + xdsText(actionSelect) + "     ";
+    if (actionPlus != "") actionPlus = "\x83 " + xdsText(actionPlus) + "     ";
+    if (actionX != "") actionX = "\x82 " + xdsText(actionX) + "     ";
+    std::string actionB = "\x81 " + xdsText("Back") + "     ";
+    std::string actionA = "\x80 " + xdsText("OK");
 
     // Calculate touch bounds for the action buttons
     int boundsAB = 1218 - (stringWidth(actionA) + 2.5f * charWidths[0]) * 34 / 48;
@@ -598,9 +602,12 @@ uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
 }
 
 uint32_t ConsoleUI::message(std::string title, std::string text, int type) {
+    // Whole messages are translated here: they are drawn one line at a time
+    title = xdsText(title);
+    text = xdsText(text);
     // Define the action strings
-    std::string actionB = "\x81 Back     ";
-    std::string actionA = "\x80 OK";
+    std::string actionB = "\x81 " + xdsText("Back") + "     ";
+    std::string actionA = "\x80 " + xdsText("OK");
 
     // Calculate touch bounds for the action buttons
     int boundsA = 1218 + (2.5f * charWidths[0]) * 34 / 48;
@@ -766,6 +773,8 @@ void ConsoleUI::settingsMenu() {
     const std::vector<std::string> frames(framesItems, framesItems + sizeof(framesItems) / sizeof(framesItems[0]));
     const std::string threadsItems[] = { "Disabled", "1 Thread", "2 Threads" };
     const std::vector<std::string> threads(threadsItems, threadsItems + sizeof(threadsItems) / sizeof(threadsItems[0]));
+    const std::string languageItems[] = { "English", "Espa\303\261ol" };
+    const std::vector<std::string> languages(languageItems, languageItems + 2);
     const std::string positionItems[] = { "Center", "Top", "Bottom", "Left", "Right" };
     const std::vector<std::string> position(positionItems, positionItems + sizeof(positionItems) / sizeof(positionItems[0]));
     const std::string rotationItems[] = { "None", "Clockwise", "Counter-Clockwise" };
@@ -816,7 +825,9 @@ void ConsoleUI::settingsMenu() {
             MenuItem("Screen Filter", filter[Settings::screenFilter]),
             MenuItem("Aspect Ratio", aspect[ScreenLayout::aspectRatio]),
             MenuItem("Integer Scale", toggle[ScreenLayout::integerScale]),
-            MenuItem("GBA Crop", toggle[ScreenLayout::gbaCrop])
+            MenuItem("GBA Crop", toggle[ScreenLayout::gbaCrop]),
+            MenuItem("Language", true),
+            MenuItem("Idioma / Language", languages[xdsLanguage % 2])
         };
     std::vector<MenuItem> settings(settingsItems, settingsItems + sizeof(settingsItems) / sizeof(settingsItems[0]));
 
@@ -852,6 +863,7 @@ void ConsoleUI::settingsMenu() {
                 case 29: ScreenLayout::aspectRatio = (ScreenLayout::aspectRatio + 1) % 4; break;
                 case 30: ScreenLayout::integerScale = (ScreenLayout::integerScale + 1) % 2; break;
                 case 31: ScreenLayout::gbaCrop = (ScreenLayout::gbaCrop + 1) % 2; break;
+                case 33: xdsLanguage = (xdsLanguage + 1) % 2; break;
 
             case 5:
                 // Update the palette when changing themes

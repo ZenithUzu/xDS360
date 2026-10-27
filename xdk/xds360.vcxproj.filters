@@ -15,6 +15,12 @@
     <ClCompile Include="frontend\xbox_buttons.cpp">
       <Filter></Filter>
     </ClCompile>
+    <ClCompile Include="frontend\xds_text.cpp">
+      <Filter></Filter>
+    </ClCompile>
+    <ClCompile Include="frontend\xds_text_data.cpp">
+      <Filter></Filter>
+    </ClCompile>
     <ClCompile Include="noods\core\core.cpp">
       <Filter></Filter>
     </ClCompile>
@@ -145,6 +151,9 @@
       <Filter></Filter>
     </ClInclude>
     <ClInclude Include="compat\xds_unistd.h">
+      <Filter></Filter>
+    </ClInclude>
+    <ClInclude Include="frontend\xds_text.h">
       <Filter></Filter>
     </ClInclude>
     <ClInclude Include="noods\LICENSE">

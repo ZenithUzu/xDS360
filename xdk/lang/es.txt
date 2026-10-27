@@ -1,0 +1,127 @@
+# Traducción del menú al español.
+# Cada línea: el texto en inglés, un TAB y el texto en español.
+# El inglés debe ser idéntico al del menú de NooDS. "\n" es un salto de línea
+# (los mensajes solo se cortan ahí, así que cada renglón debe caber en pantalla).
+# Después de editar: python3 tools/xdk/gen_text.py
+Back	Atrás
+OK	Aceptar
+Exit	Salir
+Roms	Roms
+Settings	Ajustes
+Controls	Controles
+Clear	Borrar
+Language	Idioma
+Resume	Continuar
+Restart	Reiniciar
+Save State	Guardar estado
+Load State	Cargar estado
+Change Save Type	Cambiar tipo de guardado
+Changing Save Type	Cambiando el tipo de guardado
+File Browser	Explorador de archivos
+General Settings	Ajustes generales
+Direct Boot	Arranque directo
+Keep ROM in RAM	Mantener la ROM en RAM
+FPS Limiter	Limitar FPS
+Show FPS Counter	Mostrar FPS
+Menu Theme	Tema del menú
+Dark	Oscuro
+Light	Claro
+Graphics Settings	Ajustes de gráficos
+Skip Frames	Saltar cuadros
+None	Ninguno
+1 Frame	1 cuadro
+2 Frames	2 cuadros
+3 Frames	3 cuadros
+4 Frames	4 cuadros
+5 Frames	5 cuadros
+Threaded 2D	2D en otro hilo
+Threaded 3D	Hilos para 3D
+Disabled	Desactivado
+1 Thread	1 hilo
+2 Threads	2 hilos
+High-Resolution 3D	3D en alta resolución
+Simulate Ghosting	Simular estela de LCD
+Audio Settings	Ajustes de audio
+Audio Emulation	Emulación de audio
+16-bit Audio Output	Salida de audio de 16 bits
+Experimental Settings	Ajustes experimentales
+DSi Mode	Modo DSi
+Path Settings	Ajustes de carpetas
+Separate Saves Folder	Carpeta aparte para partidas
+Separate States Folder	Carpeta aparte para estados
+Separate Cheats Folder	Carpeta aparte para trucos
+Screen Layout	Pantallas
+Screen Position	Posición
+Screen Rotation	Rotación
+Screen Arrangement	Acomodo
+Screen Sizing	Tamaño
+Screen Gap	Separación
+Screen Filter	Filtro
+Aspect Ratio	Relación de aspecto
+Integer Scale	Escala entera
+GBA Crop	Recortar GBA
+On	Sí
+Off	No
+Center	Centro
+Top	Arriba
+Bottom	Abajo
+Left	Izquierda
+Right	Derecha
+Default	Predeterminado
+Clockwise	Horario
+Counter-Clockwise	Antihorario
+Automatic	Automático
+Vertical	Vertical
+Horizontal	Horizontal
+Single Screen	Una pantalla
+Even	Iguales
+Enlarge Top	Agrandar superior
+Enlarge Bottom	Agrandar inferior
+Quarter	Un cuarto
+Half	Mitad
+Full	Completa
+Nearest	Vecino más cercano
+Upscaled	Escalado
+Linear	Lineal
+Buttons	Botones
+Hotkeys	Atajos
+A Button	Botón A
+B Button	Botón B
+X Button	Botón X
+Y Button	Botón Y
+L Button	Botón L
+R Button	Botón R
+Start Button	Botón Start
+Select Button	Botón Select
+Up Button	Botón arriba
+Down Button	Botón abajo
+Left Button	Botón izquierda
+Right Button	Botón derecha
+Menu Button	Botón de menú
+Fast Forward Hold	Avance rápido (mantener)
+Fast Forward Toggle	Avance rápido (activar)
+Screen Swap Toggle	Intercambiar pantallas
+Press an input to add it as a binding.	Presiona un botón para asignarlo.
+Are you sure? This may result in data loss!	¿Seguro? ¡Podrías perder datos!
+Do you want to load the saved state and lose the current state? This can't be undone!	¿Cargar el estado guardado y perder el estado actual?\nNo se puede deshacer.
+Do you want to overwrite the saved state with the current state? This can't be undone!	¿Sobrescribir el estado guardado con el estado actual?\nNo se puede deshacer.
+Saving and loading states is dangerous and can lead to data loss.\nStates are also not guaranteed to be compatible across emulator versions.\nPlease rely on in-game saving to keep your progress, and back up .sav files\nbefore using this feature. Do you want to save the current state?	Guardar y cargar estados es peligroso y puede hacerte perder datos.\nTampoco se garantiza que sirvan en otras versiones del emulador.\nUsa el guardado del juego para conservar tu avance y respalda\nlos archivos .sav antes de usar esto. ¿Guardar el estado actual?
+The state file doesn't exist or couldn't be opened.	El archivo de estado no existe o no se pudo abrir.
+The state file doesn't have a valid format.	El archivo de estado no tiene un formato válido.
+The state file isn't compatible with this version of NooDS.	El archivo de estado no es compatible con esta versión de NooDS.
+Load the previous NDS ROM alongside this ROM?	¿Cargar también la ROM de NDS anterior?
+Load the previous GBA ROM alongside this ROM?	¿Cargar también la ROM de GBA anterior?
+Loading NDS ROM	Cargando ROM de NDS
+Loading GBA ROM	Cargando ROM de GBA
+Error Loading ROM	Error al cargar la ROM
+Error Loading NDS BIOS	Error al cargar la BIOS de NDS
+Error Loading NDS Firmware	Error al cargar el firmware de NDS
+Error Loading DSi BIOS	Error al cargar la BIOS de DSi
+Error Loading DSi Firmware	Error al cargar el firmware de DSi
+Error Loading DSi NAND	Error al cargar la NAND de DSi
+Make sure the ROM file is accessible and try again.	Revisa que el archivo de la ROM se pueda abrir e inténtalo de nuevo.
+Make sure the path settings point to valid NDS BIOS files, or boot ROMs directly.\nYou can modify path settings in the noods.ini file.	Revisa que las rutas apunten a BIOS de NDS válidas,\no arranca las ROMs directamente.\nPuedes cambiar las rutas en el archivo noods.ini.
+Make sure the path settings point to a firmware file dumped from a pre-DSi console, or boot ROMs directly.\nYou can modify path settings in the noods.ini file.	Revisa que las rutas apunten a un firmware copiado de una consola\nanterior a la DSi, o arranca las ROMs directamente.\nPuedes cambiar las rutas en el archivo noods.ini.
+Make sure the path settings point to valid DSi BIOS files, or turn off DSi mode.\nYou can modify path settings in the noods.ini file.	Revisa que las rutas apunten a BIOS de DSi válidas,\no desactiva el modo DSi.\nPuedes cambiar las rutas en el archivo noods.ini.
+Make sure the path settings point to a firmware file dumped from a DSi console, or turn off DSi mode.\nYou can modify path settings in the noods.ini file.	Revisa que las rutas apunten a un firmware copiado de una DSi,\no desactiva el modo DSi.\nPuedes cambiar las rutas en el archivo noods.ini.
+Make sure the path settings point to a valid DSi NAND file, or turn off DSi mode.\nYou can modify path settings in the noods.ini file.	Revisa que las rutas apunten a una NAND de DSi válida,\no desactiva el modo DSi.\nPuedes cambiar las rutas en el archivo noods.ini.

@@ -150,6 +150,61 @@ TEXT_FIXES = [
     # "std::vector<T> x = { a, b };" (C++11) -> an array, then the vector built from it.
     ('ui/console/console_ui.cpp', VECTOR_LIST, VECTOR_ARRAY, 15),
     ('ui/screen_layout.cpp', VECTOR_LIST, VECTOR_ARRAY, 1),
+    # Spanish menu and the letters ñ, á, ¿... (frontend/xds_text.cpp). These run
+    # last: they match the text the fixes above leave.
+    ('ui/console/console_ui.cpp', '#include "xds_unistd.h"\n',
+     '#include "xds_unistd.h"\n#include "../../../frontend/xds_text.h"\n', 1),
+    ('ui/console/console_ui.cpp', 'bmpToTexture(_binary_src_ui_console_images_font_bmp_start)',
+     'bmpToTexture(xdsFontBmp(_binary_src_ui_console_images_font_bmp_start))', 1),
+    ('ui/console/console_ui.cpp',
+     '    // Set the initial offset based on alignment\n',
+     '    // Translate, then set the initial offset based on alignment\n'
+     '    string = xdsText(string);\n', 1),
+    ('ui/console/console_ui.cpp',
+     '        float tx = 48.0f * (((uint8_t)string[i] - 32) % 10);\n'
+     '        float ty = 48.0f * (((uint8_t)string[i] - 32) / 10);\n'
+     '        drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,\n'
+     '            (uint8_t)string[i] >= 0x7F ? 0xFFFFFFFF : color);\n'
+     '        offset += charWidths[(uint8_t)string[i] - 32];\n',
+     '        int cell = xdsGlyph(string, i); // UTF-8 letters take more than one byte\n'
+     '        float tx = 48.0f * (cell % 10);\n'
+     '        float ty = 48.0f * (cell / 10);\n'
+     '        drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,\n'
+     '            (cell >= 0x7F - 32 && cell <= 0x83 - 32) ? 0xFFFFFFFF : color);\n'
+     '        offset += xdsGlyphWidth(cell, charWidths);\n', 1),
+    ('ui/console/console_ui.cpp',
+     '        width += charWidths[(uint8_t)string[i] - 32];\n',
+     '        width += xdsGlyphWidth(xdsGlyph(string, i), charWidths);\n', 1),
+    ('ui/console/console_ui.cpp', '"\\x7F " + actionSelect', '"\\x7F " + xdsText(actionSelect)', 1),
+    ('ui/console/console_ui.cpp', '"\\x83 " + actionPlus', '"\\x83 " + xdsText(actionPlus)', 1),
+    ('ui/console/console_ui.cpp', '"\\x82 " + actionX', '"\\x82 " + xdsText(actionX)', 1),
+    ('ui/console/console_ui.cpp', 'std::string actionB = "\\x81 Back     ";',
+     'std::string actionB = "\\x81 " + xdsText("Back") + "     ";', 2),
+    ('ui/console/console_ui.cpp', 'std::string actionA = "\\x80 OK";',
+     'std::string actionA = "\\x80 " + xdsText("OK");', 2),
+    ('ui/console/console_ui.cpp',
+     'uint32_t ConsoleUI::message(std::string title, std::string text, int type) {\n',
+     'uint32_t ConsoleUI::message(std::string title, std::string text, int type) {\n'
+     '    // Whole messages are translated here: they are drawn one line at a time\n'
+     '    title = xdsText(title);\n'
+     '    text = xdsText(text);\n', 1),
+    # The language is saved in noods.ini and chosen at the end of Settings.
+    ('ui/console/console_ui.cpp', '        Setting("menuTheme", &menuTheme, false),\n',
+     '        Setting("menuTheme", &menuTheme, false),\n'
+     '        Setting("language", &xdsLanguage, false),\n', 1),
+    ('ui/console/console_ui.cpp',
+     '    const std::vector<std::string> threads(threadsItems, threadsItems + sizeof(threadsItems) / sizeof(threadsItems[0]));\n',
+     '    const std::vector<std::string> threads(threadsItems, threadsItems + sizeof(threadsItems) / sizeof(threadsItems[0]));\n'
+     '    const std::string languageItems[] = { "English", "Espa\\303\\261ol" };\n'
+     '    const std::vector<std::string> languages(languageItems, languageItems + 2);\n', 1),
+    ('ui/console/console_ui.cpp', '            MenuItem("GBA Crop", toggle[ScreenLayout::gbaCrop])\n',
+     '            MenuItem("GBA Crop", toggle[ScreenLayout::gbaCrop]),\n'
+     '            MenuItem("Language", true),\n'
+     '            MenuItem("Idioma / Language", languages[xdsLanguage % 2])\n', 1),
+    ('ui/console/console_ui.cpp',
+     '                case 31: ScreenLayout::gbaCrop = (ScreenLayout::gbaCrop + 1) % 2; break;\n',
+     '                case 31: ScreenLayout::gbaCrop = (ScreenLayout::gbaCrop + 1) % 2; break;\n'
+     '                case 33: xdsLanguage = (xdsLanguage + 1) % 2; break;\n', 1),
 ]
 
 

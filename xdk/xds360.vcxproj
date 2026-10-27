@@ -97,6 +97,8 @@
     <ClCompile Include="compat\xds_platform.cpp" />
     <ClCompile Include="frontend\main.cpp" />
     <ClCompile Include="frontend\xbox_buttons.cpp" />
+    <ClCompile Include="frontend\xds_text.cpp" />
+    <ClCompile Include="frontend\xds_text_data.cpp" />
     <ClCompile Include="noods\core\core.cpp" />
     <ClCompile Include="noods\core\save_states.cpp" />
     <ClCompile Include="noods\core\settings.cpp" />
@@ -141,6 +143,7 @@
     <ClInclude Include="compat\xds_compat.h" />
     <ClInclude Include="compat\xds_platform.h" />
     <ClInclude Include="compat\xds_unistd.h" />
+    <ClInclude Include="frontend\xds_text.h" />
     <ClInclude Include="noods\LICENSE" />
     <ClInclude Include="noods\core\core.h" />
     <ClInclude Include="noods\core\defines.h" />

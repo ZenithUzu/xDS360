@@ -21,6 +21,9 @@ python3 -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[1],'wb').
 cp "$build/test.nds" "$console/roms/Render Test.nds"
 cp "$build/test.nds" "$console/roms/DS Games/Another Test Game (USA).nds"
 echo "not a rom" > "$console/roms/readme.txt"
+# Names with n-tilde and accents: as FTP leaves them (UTF-8) and as Latin-1.
+cp "$build/test.nds" "$console/roms/Pequeño Ñandú - Acción ¡Ya!.nds"
+cp "$build/test.nds" "$console/roms/$(printf 'Espa\xf1a.nds')"
 
 mapfile -t noods < <(cd "$repo_root/xdk/noods" && find . -name '*.cpp' | sort | sed "s#^\./#$repo_root/xdk/noods/#")
 flags=(-w -std=c++11 -O2 -pthread -fms-extensions -DXDS_SIM -DLOG_LEVEL=0 -DNOODS_XENON=1 -DNO_FDOPEN=1
@@ -29,6 +32,7 @@ flags=(-w -std=c++11 -O2 -pthread -fms-extensions -DXDS_SIM -DLOG_LEVEL=0 -DNOOD
 
 objects=()
 for source in "$repo_root/xdk/frontend/main.cpp" "$repo_root/xdk/frontend/xbox_buttons.cpp" \
+              "$repo_root/xdk/frontend/xds_text.cpp" "$repo_root/xdk/frontend/xds_text_data.cpp" \
               "$repo_root/xdk/compat/xds_files.cpp" \
               "$repo_root/xdk/compat/xds_platform.cpp" "${noods[@]}"; do
     object="$build/obj/$(echo "${source#$repo_root/}" | tr '/' '_').o"
@@ -48,10 +52,12 @@ script="wait:40 shot:01-roms-folder
 press:B wait:20 shot:02-emulator-folder
 press:B wait:20 shot:03-drives
 press:START wait:20 shot:04-start-goes-to-roms
-press:DOWN wait:5 press:A wait:240 shot:05-game
+press:DOWN wait:5 press:DOWN wait:5 press:A wait:240 shot:05-game
 press:RS wait:30 shot:06-pause-menu
 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3
 press:A wait:30 shot:07-settings
+$(for n in $(seq 32); do printf 'press:DOWN wait:3 '; done) wait:10 shot:07b-language
+press:A wait:10 shot:07c-english press:A wait:10
 press:B wait:20 press:DOWN wait:3 press:A wait:30 shot:08-back-to-browser
 press:BACK wait:10"
 

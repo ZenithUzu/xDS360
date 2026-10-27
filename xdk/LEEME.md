@@ -43,6 +43,18 @@ llegas a las unidades: disco duro (`hdd`) y USB (`usb0` a `usb2`).
 | Start | Ir a `roms\` |
 | Back | Salir al dashboard |
 
+## Idioma y nombres con ñ
+
+- El menú sale en **español**. Para cambiarlo: **Ajustes**, hasta abajo,
+  **Idioma / Language** (se guarda en `noods.ini`).
+- Los nombres de ROMs y carpetas pueden llevar **ñ, acentos, ü, ¿ y ¡**, tanto
+  si los copias por FTP (llegan en UTF-8) como si vienen de una USB (Latin-1).
+  Otras letras (por ejemplo japonés) salen como `?`, pero el juego abre igual.
+- Recuerda: en FATX el límite es de 42 **bytes**, y por FTP cada ñ o acento
+  ocupa 2.
+- Las traducciones están en `xdk/lang/es.txt` (inglés, TAB, español). Si las
+  cambias, corre `python3 tools/xdk/gen_text.py` y vuelve a compilar.
+
 ## Controles en el juego
 
 | Xbox | DS |
@@ -80,6 +92,10 @@ por cuadro. Si algo falla en la consola, mándalo.
   (XNA Game Studio), licencia Ms-PL (`licencias/XNA-botones-MsPL.txt`). Lo
   genera `tools/xdk/gen_xbox_buttons.py` desde la carpeta `ButtonImages` del
   paquete; no se edita a mano.
+- `frontend/xds_text.cpp`: el idioma del menú y la lectura de letras (UTF-8 y
+  Latin-1). Las letras nuevas (á, ñ, ¿...) se arman con las de la fuente de
+  NooDS; `tools/xdk/gen_text.py` las genera junto con las traducciones en
+  `frontend/xds_text_data.cpp` (no se edita a mano).
 - `frontend/main.cpp`: la capa de Xbox que pide esa interfaz: video (Direct3D),
   control, sonido (XAudio2), unidades, log y rutas.
 - `compat/xds_files.cpp`: traduce las rutas de NooDS (`/game:/roms`) a las de
@@ -91,6 +107,8 @@ por cuadro. Si algo falla en la consola, mándalo.
 
 - `tools/xdk/test_core_pc.sh`: compila el núcleo convertido con `compat/` y
   comprueba que las huellas de cuadros sean iguales a las de NooDS original.
+- `tools/xdk/test_text.sh`: prueba la lectura de ñ y acentos (UTF-8, Latin-1),
+  las traducciones y la fuente agrandada.
 - `tools/xdk/check_syntax.sh`: revisa todos los archivos como si fuera VS2010
   para Xbox, con encabezados falsos del XDK.
 - `tools/xdk/sim/run_sim.sh`: corre el `main.cpp` real en la PC con un XDK
