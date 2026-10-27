@@ -1,231 +1,109 @@
-# XenonDS
+# xDS360
 
-<p align="center">
-  <img src="branding/social-preview.png" alt="XenonDS: Nintendo DS emulation for Xbox 360 homebrew" width="100%">
-</p>
+An experimental Nintendo DS emulator for Xbox 360 homebrew, rebuilt to compile
+with **Visual Studio 2010 and the Xbox 360 SDK (XDK)** and run as a regular
+`.xex` from Aurora and other homebrew dashboards.
 
-XenonDS is an open-source Nintendo DS emulator port for Xbox 360 homebrew.
-It combines a portable frontend with LibXenon platform support and Nintendo DS
-emulation cores adapted for the Xbox 360.
+xDS360 is a fork of [XenonDS](https://github.com/jmay46/XenonDS) by jmay46.
+XenonDS proved that a patched [NooDS](https://github.com/Hydr8gon/NooDS) core can
+boot retail DS games on real Xbox 360 hardware using LibXenon. This fork takes
+that work as its foundation and moves the platform layer to the official SDK
+toolchain, so the emulator can share the frontend, audio and library work
+already done for [AdvanXe360](https://github.com/ZenithUzu/AdvanXe360).
 
-> **Project status:** Experimental. XenonDS now boots a retail Nintendo DS game
-> on real Xbox 360 hardware with animated dual-screen video, controller input,
-> touch input, and persistent cartridge saves. The v0.9.1 prerelease
-> fixes the white-screen/0-FPS timing regression, adds validated frame-boundary
-> Turbo rendering, separates emulation and video-rate reporting, keeps live
-> display controls, and improves Xenon scheduling, presentation, and multicore
-> software 3D.
-> Audio, a ROM browser, and broad compatibility testing are not included yet.
+> **Project status:** Early development. There is no xDS360 release yet. The
+> code currently in this repository is the upstream XenonDS LibXenon port
+> (v0.9.1), kept as the working reference while the XDK version is built.
 
-## Download and install
+## Goals
 
-Download the current [XenonDS v0.9.1 USB build](https://github.com/jacksonmmaynard-oss/XenonDS/releases/download/v0.9.1/XenonDS-v0.9.1-USB.zip).
+What we expect xDS360 to become:
 
-1. Back up any existing `XenonDS/game.sav`.
-2. Extract the ZIP directly to the root of a FAT32 USB drive.
-3. Add your legally dumped ROM as `XenonDS/game.nds`.
-4. Boot XeLL and press **A** at the XenonDS loader prompt.
+- **Native XDK build.** A Visual Studio 2010 solution that produces a `.xex`,
+  launched from Aurora/FreeStyle like any other homebrew. No XeLL required.
+- **Works on modern exploits.** Targets RGH/JTAG consoles and BadUpdate, and is
+  tested on real hardware first, with Xenia as a secondary check.
+- **NooDS core with the XenonDS Xbox patches.** Big-endian memory access, the
+  direct THUMB/branch dispatch, the sorted event queue and the multithreaded
+  software 3D renderer all carry over.
+- **Direct-boot by default.** No Nintendo BIOS or firmware files required.
+- **Both screens with Direct3D.** Vertical, horizontal and single-screen
+  layouts, integer and filtered scaling, and picture controls.
+- **Audio through XAudio2.** Stereo DS sound, which the LibXenon build does not
+  have yet.
+- **XInput controls.** Full DS button mapping, with the right stick acting as the
+  touch-screen cursor.
+- **A real ROM library.** A browser with covers and themes, instead of a single
+  `game.nds` file.
+- **Saves and save states.** Persistent cartridge `.sav` files from the start,
+  save states later.
+- **Honest performance numbers.** An on-screen counter that separates emulated
+  frames, displayed frames and real DS speed.
 
-Keep `xenon.elf` in the USB root and
-`XenonDS/xenonds-core.elf32` inside the `XenonDS` folder. Press **LT** to
-toggle uncapped Turbo and **R3** to open or close picture settings. See the
-[v0.9.1 release notes](docs/releases/v0.9.1.md) for the complete controls,
-upgrade notes, validation, and known limitations.
+### Performance expectations
 
-## Hardware demo
+The Nintendo DS is far heavier to emulate than the Game Boy Advance, and the
+Xbox 360 CPU struggles with interpreter-style code. On real hardware, the
+upstream LibXenon build reached about 22–23 FPS in the 3D-heavy scenes of
+Pokémon Black with three rendering threads. Full speed in demanding 3D games
+will most likely need an ARM-to-PowerPC recompiler, which is a long-term goal,
+not a promise.
 
-https://github.com/user-attachments/assets/14ba5767-a1ef-4ce8-8817-85949b17969b
+## Roadmap
 
-The video shows the first v0.7.0 hardware run at roughly 17 FPS. It is included
-as a real-console milestone, not a full-speed compatibility claim.
+1. **VS2010 compatibility layer.** XDK-backed replacements for `std::thread`,
+   `std::mutex`, `std::condition_variable`, `std::atomic` and `std::chrono`;
+   moving NooDS's in-class member initializers into constructors; MSVC
+   replacements for the GCC builtins. Goal: the NooDS core compiles as a static
+   library in VS2010.
+2. **First frame on the console.** A minimal XDK frontend that loads a ROM,
+   shows both screens and reports FPS.
+3. **Playable.** XAudio2 audio, full controller and touch input, cartridge
+   saves.
+4. **Frontend.** ROM library, settings menus, screen layouts and filters.
+5. **Speed.** Profiling on hardware and, eventually, a dynamic recompiler.
 
-## Implemented
+## Building
 
-- Nintendo DS header parsing and CRC16 validation
-- ARM7 and ARM9 executable-range validation
-- Backend-neutral emulator lifecycle
-- Dual-screen video, stereo audio, controller, and touch interfaces
-- Vertical, horizontal, and single-screen layouts with integer scaling
-- Label-matched Xbox controller mapping and right-stick touch input
-- BGR555-to-XRGB8888 conversion and nearest-neighbor composition
-- Host-side tests and ROM information utility
-- Initial DeSmuME adapter and LibXenon hardware probe
-- On-console FAT device discovery and Nintendo DS ROM-header validation
-- Statically linked DeSmuME interpreter checkpoint for LibXenon
-- Direct software-framebuffer output for the two Nintendo DS screens
-- On-console emulation and video-stage profiler
-- NooDS direct-boot core with no proprietary BIOS requirement
-- Persistent `.sav` loading and periodic/exit-time save flushing
-- Asynchronous Xbox framebuffer presentation on a second hardware thread
-- Separate on-screen emulated-frame, displayed-video, and real-time DS-speed
-  counters
-- Xenon-specific direct THUMB/branch dispatch and reverse-sorted event queue
-- Three-worker NooDS software-3D renderer on hardware contexts 2/3/4, with
-  ordered scanline polygon bins and video presentation isolated on context 5
-- Stable complete-frame delivery with no internal scheduler slices counted as video
-- Persistent brightness, contrast, and color controls opened with R3
-- Left-trigger Turbo mode with an uncapped one-in-four video handoff and an
-  on-screen indicator
-- Capture-aware Turbo rendering that keeps guest VRAM video/cutscene captures current
-- Nonblocking framebuffer submission with bounded worker-failure diagnostics
+The XDK build is not in the repository yet. When it lands, building it will
+require Visual Studio 2010 and your own licensed copy of the Xbox 360 SDK; no
+Microsoft SDK files are, or will be, included here.
 
-## Build and test
+The inherited upstream builds still work as described in their own docs:
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
-
-Inspect a legally dumped Nintendo DS image:
-
-```bash
-./build/xenonds-rominfo /path/to/game.nds
-```
-
-Generate a synthetic dual-screen compositor image:
-
-```bash
-./build/xenonds-layout-demo xenonds-layout-demo.ppm
-```
-
-![Synthetic XenonDS compositor output](docs/images/layout-demo.png)
-
-## Xbox 360 hardware probe
-
-The LibXenon runtime probe in `platform/xenon` initializes video, USB,
-controller, ATA, and FAT services, then validates the first `.nds` header it
-finds in `XenonDS/`, `xenonds/`, or the root of a mounted FAT device. A
-Docker-based Windows build script is included:
-
-```powershell
-./scripts/build_xenon_probe.ps1
-```
-
-Running the resulting `.elf32` file requires a homebrew-capable Xbox 360 and
-XeLL. Copy only a legally dumped `.nds` image to the USB drive; this milestone
-inspects metadata and does not execute the game yet.
-
-## NooDS v0.9.1 Turbo build
-
-The current Xbox target uses a pinned and patched NooDS core. It boots the first valid
-`.nds` file found in `XenonDS/`, `xenonds/`, or the root of a mounted FAT
-device, renders both DS screens, maps all DS controls, and stores a `.sav` file
-beside the ROM. It uses direct boot, so DS BIOS and firmware files are optional.
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\build_xenon_noods.ps1
-```
-
-The USB-ready output is `platform/xenon/release-noods/`. Preserve its folder
-layout, add one legally dumped ROM as `XenonDS/game.nds`, boot XeLL, and press
-**A** at the staged-loader prompt. See [Xbox 360 runtime testing](docs/XBOX_TESTING.md)
-for controls and limitations.
-
-The build prints ROM-preload progress for large games. After `Core ready`, it
-presents and paces only exact NooDS end-of-frame events. Internal CPU halt/resume
-scheduler returns are never mistaken for frames. Invalid-instruction and
-stopped-video watchdogs show ARM9/ARM7 diagnostics instead of silently hanging.
-Solid-color frames remain valid game output and are never treated as a failure.
-The overlay reports completed emulated frames, displayed-video frames, and
-actual game-clock speed separately; SPEED 100% means the emulated Nintendo DS
-is running in real time.
-
-The v0.7.1 optimization pass replaced expensive indirect dispatch for common
-THUMB instructions and ARM branches, uses native endian-correct mapped-memory
-accesses, removes unused audio scheduling, enables link-time optimization, and
-keeps the scheduler's next event at the end of its vector for constant-time
-removal. On the deterministic host interpreter benchmark, the same frame hash
-improved from 354.95 to 528.13 FPS (48.8%). Actual console performance varies
-by game; the on-screen counter is the authoritative hardware measurement.
-
-The v0.8.0 pass targets the next measured bottleneck: software 3D. Four LibXenon
-worker contexts now split NooDS scanlines across the two non-main physical CPU
-cores, while video presentation uses the main core's sibling context. Ordered
-per-scanline polygon bins also avoid rescanning the complete polygon list for
-every row. A deterministic 384-polygon renderer benchmark produced the same
-frame hash in serial and threaded modes and improved from 1141.54 to 2717.16
-FPS on the host (2.38x). The real-console result still depends on scene mix and
-must be measured with the overlay.
-
-Real-console testing of v0.8.0 improved Pokemon Black's 3D-heavy scenes from
-about 9 FPS to a stable 22-23 FPS, with brief peaks near 30 FPS. Controller
-input, action scenes, and persistent cartridge saves were also verified. The
-v0.8.3 build established a working full-frame baseline. A later frontend change
-incorrectly paced every return from `runCore()`, including internal CPU
-halt/resume boundaries; that could throttle scheduler slices to 60 per second
-before a real DS frame completed, producing two white screens and 0 FPS.
-
-v0.9.0 made `Core::endFrame()` the single owner of cadence, statistics, and
-save timing. Normal mode renders every completed frame. Left-trigger Turbo
-switches only at a frame boundary while DS CPU, input, timer, and game logic
-execution continue continuously. The presenter also copies only changed Xbox
-framebuffer tiles after its first frame. These paths pass deterministic
-frame-cadence, scheduler-return, framebuffer-hash, display-capture, and
-release-LTO tests. Capture-heavy games still receive fresh internal 2D/3D
-pixels when required, so Turbo cannot corrupt video or cutscene data stored in
-guest VRAM.
-
-v0.9.1 keeps that exact completed-frame ownership and replaces the ambiguous
-speed presets with two honest modes. Normal is capped at 60 Hz and presents
-every completed frame. Turbo is uncapped and hands one complete rendered frame
-in four to the television; it does not claim a fixed 2x multiplier. The overlay
-reports EMU, VID, and real DS-clock SPEED separately. Its Xenon scheduler calls
-the fixed task table directly, the optimized presenter uses precomputed tiled
-framebuffer offsets, and hardware context 5 is reserved exclusively for video.
-Deterministic replay tests cover scheduler-only returns, 602 completed frames,
-Turbo toggles, capture freshness, legitimate all-white output, 100 display-menu
-open/close cycles, and exact framebuffer hashes. Real-console performance still
-depends on the game and scene.
-
-GitHub Actions publishes three v0.9.1 artifacts from the same build: the
-USB-ready runtime, unstripped debug symbols, and a corresponding-source archive
-containing the exact pinned NooDS source used by the executable.
-
-## Legacy DeSmuME performance checkpoint
-
-The v0.4.1 build uses a small staged loader plus the pinned DeSmuME interpreter
-core. The loader shows file-read progress and a moving memory-preparation bar,
-then the core loads the first legal `.nds` image found on FAT storage and runs
-it on the Xbox 360. Before gameplay it reports separate input, ARM interpreter,
-frame-copy, and Xbox-video timings measured on the console.
-
-```powershell
-./scripts/build_xenon_desmume.ps1
-```
-
-The USB-ready output is `platform/xenon/release/`: `xenon.elf` belongs in the
-drive root and `XenonDS/xenonds-core.elf32` stays inside the included folder.
-This checkpoint uses the scalar interpreter and has no audio, save persistence,
-or ROM browser yet. It keeps the proven v0.3.7 framebuffer path while measuring
-where each frame spends its time. See [Xbox 360 runtime testing](docs/XBOX_TESTING.md) for the
-complete layout and expected on-screen result.
-
-## Upstream dependencies
-
-```bash
-./scripts/fetch_upstreams.sh
-```
-
-The script checks out the legacy DeSmuME and LibXenon revisions recorded in
-`upstream.lock`. `scripts/fetch_noods.sh` checks out the pinned NooDS revision
-and applies the Xbox compatibility patch without overwriting a modified local
-checkout.
+- Host tests and tools: `cmake -S . -B build && cmake --build build && ctest --test-dir build`
+- LibXenon NooDS build: `scripts/build_xenon_noods.ps1` (see
+  [Xbox 360 runtime testing](docs/XBOX_TESTING.md))
+- Upstream sources: `scripts/fetch_noods.sh` checks out the pinned NooDS commit
+  from `upstream.lock` and applies `patches/noods-xenon.patch`.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Xbox 360 runtime testing](docs/XBOX_TESTING.md)
+- [Architecture](docs/ARCHITECTURE.md) (upstream XenonDS)
+- [Roadmap](docs/ROADMAP.md) (upstream XenonDS)
+- [Xbox 360 runtime testing](docs/XBOX_TESTING.md) (upstream XenonDS)
 - [Contributing](CONTRIBUTING.md)
-- [Brand assets](branding/README.md)
+
+## Credits
+
+xDS360 exists because of the work of these projects and people:
+
+- **[XenonDS](https://github.com/jmay46/XenonDS)** by jmay46: the original Xbox
+  360 port, the NooDS Xbox compatibility patch, the multithreaded 3D renderer
+  and the hardware testing this fork builds on.
+- **[NooDS](https://github.com/Hydr8gon/NooDS)** by Hydr8gon: the Nintendo DS
+  emulation core.
+- **[DeSmuME](https://github.com/TASEmulators/desmume)** by the DeSmuME team:
+  the core used by XenonDS's earlier checkpoints.
+- **[LibXenon](https://github.com/X360Tools/libxenon)** and the Free60 project:
+  the open-source Xbox 360 toolchain used by the upstream port.
 
 ## Legal
 
-XenonDS does not include games, Nintendo BIOS or firmware files, encryption
-keys, Microsoft SDK files, or proprietary Xbox software. Use ROM images and
-firmware dumped from hardware and games you own. The legacy DeSmuME executable
-is GPL-2.0; the NooDS executable is GPL-3.0-or-later. Shared XenonDS code is
-GPL-2.0-or-later. Derived releases must preserve the applicable license and
-provide corresponding source code.
+xDS360 does not include games, Nintendo BIOS or firmware files, encryption keys,
+Microsoft SDK files, or proprietary Xbox software. Use ROM images and firmware
+dumped from hardware and games you own.
+
+The legacy DeSmuME executable is GPL-2.0; the NooDS executable is
+GPL-3.0-or-later. Shared XenonDS code is GPL-2.0-or-later. Derived releases must
+preserve the applicable license and provide corresponding source code.
