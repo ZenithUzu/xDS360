@@ -96,6 +96,7 @@
     <ClCompile Include="compat\xds_files.cpp" />
     <ClCompile Include="compat\xds_platform.cpp" />
     <ClCompile Include="frontend\main.cpp" />
+    <ClCompile Include="frontend\xbox_buttons.cpp" />
     <ClCompile Include="noods\core\core.cpp" />
     <ClCompile Include="noods\core\save_states.cpp" />
     <ClCompile Include="noods\core\settings.cpp" />

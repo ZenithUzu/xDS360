@@ -40,7 +40,8 @@ llegas a las unidades: disco duro (`hdd`) y USB (`usb0` a `usb2`).
 | A | Abrir carpeta o jugar |
 | B | Subir una carpeta |
 | X | Ajustes |
-| Start | Salir al dashboard |
+| Start | Ir a `roms\` |
+| Back | Salir al dashboard |
 
 ## Controles en el juego
 
@@ -72,8 +73,13 @@ por cuadro. Si algo falla en la consola, mándalo.
 - `compat/`: versiones propias de `<thread>`, `<mutex>`, `<atomic>`, `<chrono>`
   y `<condition_variable>` (VS2010 no las tiene), hechas con funciones del XDK.
 - `noods/ui/`: la interfaz de consola de NooDS (menús, explorador, imágenes),
-  también convertida por ese script. Los iconos de los botones A, B, X y Start
-  se pintan con colores de Xbox desde `main.cpp` (dibujo propio).
+  también convertida por ese script. Al arrancar, `main.cpp` cambia los
+  símbolos de botones de su fuente por los íconos de Xbox.
+- `frontend/xbox_buttons.cpp`: los íconos de los botones (A, B, X, Start y
+  Back), imágenes del paquete "Xbox 360 Controller Button Images" de Microsoft
+  (XNA Game Studio), licencia Ms-PL (`licencias/XNA-botones-MsPL.txt`). Lo
+  genera `tools/xdk/gen_xbox_buttons.py` desde la carpeta `ButtonImages` del
+  paquete; no se edita a mano.
 - `frontend/main.cpp`: la capa de Xbox que pide esa interfaz: video (Direct3D),
   control, sonido (XAudio2), unidades, log y rutas.
 - `compat/xds_files.cpp`: traduce las rutas de NooDS (`/game:/roms`) a las de

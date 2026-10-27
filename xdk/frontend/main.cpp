@@ -6,7 +6,6 @@
 #include <xtl.h>
 #include <xaudio2.h>
 
-#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +26,10 @@ struct KernelString {
 extern "C" long ObCreateSymbolicLink(KernelString *link, KernelString *device);
 
 extern uint8_t _binary_src_ui_console_images_font_bmp_start[];
+
+// Xbox 360 button pictures, in xbox_buttons.cpp (Ms-PL).
+extern const unsigned char xboxButtonChars[5];
+extern const unsigned int xboxButtonPixels[5][48 * 48];
 
 namespace {
 
@@ -168,48 +171,23 @@ void waitForGpu(Texture *texture) {
         device->BlockOnFence(frameFences[texture->usedFrame & 7]);
 }
 
-// The A, B, X and "+" symbols of NooDS's font become Xbox-style buttons:
-// colored discs with a white letter, and Start as a disc with an arrow.
+// Xbox 360 button pictures (xbox_buttons.cpp, Ms-PL) replace the A, B, X, "+"
+// symbols of NooDS's font, and its unused 0x7F cell becomes Back.
+
 void paintXboxButtons(uint8_t *bmp) {
     const int width = U8TO32(bmp, 0x12), height = U8TO32(bmp, 0x16);
-    // Blue, green, red of each disc (BMP pixels are stored B, G, R, A).
-    static const uint8_t colors[4][3] = {
-        { 0x2E, 0xB8, 0x5D }, // A: green
-        { 0x2E, 0x30, 0xD8 }, // B: red
-        { 0xD8, 0x6E, 0x2A }, // X: blue
-        { 0xC8, 0xC8, 0xC8 }  // Start: silver
-    };
-    for (int button = 0; button < 4; button++) {
-        const int cell = 0x80 + button - 32;
+    for (int button = 0; button < 5; button++) {
+        const int cell = xboxButtonChars[button] - 32;
         const int left = 48 * (cell % 10), top = 48 * (cell / 10);
-        // The disc's radius is how far its outermost pixel reaches.
-        float radius = 0;
-        for (int y = 0; y < 48; y++)
-            for (int x = 0; x < 48; x++)
-                if (bmp[0x46 + (((height - 1 - (top + y)) * width + left + x) << 2) + 3]) {
-                    float dx = x - 23.5f, dy = y - 23.5f;
-                    float d = sqrtf(dx * dx + dy * dy);
-                    if (d > radius) radius = d;
-                }
         for (int y = 0; y < 48; y++) {
             for (int x = 0; x < 48; x++) {
+                // BMP rows go bottom-up and each pixel is B, G, R, A.
                 uint8_t *p = &bmp[0x46 + (((height - 1 - (top + y)) * width + left + x) << 2)];
-                float dx = x - 23.5f, dy = y - 23.5f;
-                bool inside = sqrtf(dx * dx + dy * dy) < radius - 1.0f;
-                bool mark; // the letter (or arrow) inside the disc
-                if (button == 3) // Start: an arrow pointing right instead of "+"
-                    mark = dx > -7 && dx < 9 && (dy < 0 ? -dy : dy) < (9 - dx) * 0.6f;
-                else
-                    mark = p[3] < 128; // the letter is the hole in the original disc
-                if (inside && mark) {
-                    const uint8_t ink = button == 3 ? 0x30 : 0xFF;
-                    p[0] = p[1] = p[2] = ink;
-                    p[3] = 0xFF;
-                } else if (p[3]) { // disc and its soft edge keep their alpha
-                    p[0] = colors[button][0];
-                    p[1] = colors[button][1];
-                    p[2] = colors[button][2];
-                }
+                const unsigned int c = xboxButtonPixels[button][y * 48 + x];
+                p[0] = c & 0xFF;
+                p[1] = (c >> 8) & 0xFF;
+                p[2] = (c >> 16) & 0xFF;
+                p[3] = c >> 24;
             }
         }
     }

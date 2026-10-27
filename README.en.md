@@ -100,6 +100,10 @@ xDS360 exists because of the work of these projects and people:
   the core used by XenonDS's earlier checkpoints.
 - **[LibXenon](https://github.com/X360Tools/libxenon)** and the Free60 project:
   the open-source Xbox 360 toolchain used by the upstream port.
+- **Button icons:** Xbox 360 controller pictures from **Microsoft**'s XNA Game
+  Studio [Xbox 360 Controller Button Images](https://github.com/SimonDarksideJ/XNAGameStudio/wiki/Xbox-360-Controller-Button-Images)
+  pack, Ms-PL license ([text](licencias/XNA-botones-MsPL.txt)). They live in
+  their own file, `xdk/frontend/xbox_buttons.cpp`.
 
 ## Legal
 
@@ -110,3 +114,4 @@ dumped from hardware and games you own.
 The legacy DeSmuME executable is GPL-2.0; the NooDS executable is
 GPL-3.0-or-later. Shared XenonDS code is GPL-2.0-or-later. Derived releases must
 preserve the applicable license and provide corresponding source code.
+The button icons (`xdk/frontend/xbox_buttons.cpp`) are Ms-PL.

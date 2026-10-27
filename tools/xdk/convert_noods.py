@@ -98,10 +98,45 @@ TEXT_FIXES = [
     # The images are C arrays here (ui/console/images.cpp), not linker blobs.
     ('ui/console/console_ui.cpp', re.compile(r'extern uint8_t (_binary_\w+_start);'), r'extern uint8_t \1[];', 5),
     ('ui/console/console_ui.cpp', '(&_binary_src_ui_console_images_', '(_binary_src_ui_console_images_', 5),
-    # Button symbols (A, B, X, Start) keep their own colors instead of the text color.
+    # Button symbols (Back 0x7F, A, B, X, Start) keep their own colors instead of the text color.
     ('ui/console/console_ui.cpp', 'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0, color);',
      'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,\n'
-     '            (uint8_t)string[i] >= 0x80 ? 0xFFFFFFFF : color);', 1),
+     '            (uint8_t)string[i] >= 0x7F ? 0xFFFFFFFF : color);', 1),
+    # Xbox button pictures fill their whole cell (main.cpp), so they are wider.
+    ('ui/console/console_ui.cpp', '16, 9, 8, 9, 12, 0, 40, 40, 40, 40', '16, 9, 8, 9, 12, 50, 50, 50, 50, 50', 1),
+    # A third footer action, bound to Back (Select): on the Xbox, Back exits the
+    # file browser and Start goes to the ROMs folder.
+    ('ui/console/console_ui.h', 'int &index, std::string actionX = "", std::string actionPlus = "");',
+     'int &index, std::string actionX = "", std::string actionPlus = "", std::string actionSelect = "");', 1),
+    ('ui/console/console_ui.cpp', 'int &index, std::string actionX, std::string actionPlus) {',
+     'int &index, std::string actionX, std::string actionPlus, std::string actionSelect) {', 1),
+    ('ui/console/console_ui.cpp', '    if (actionPlus != "") actionPlus = "\\x83 "',
+     '    if (actionSelect != "") actionSelect = "\\x7F " + actionSelect + "     ";\n'
+     '    if (actionPlus != "") actionPlus = "\\x83 "', 1),
+    ('ui/console/console_ui.cpp', '    int boundsPlus = boundsXPlus - stringWidth(actionPlus) * 34 / 48;\n',
+     '    int boundsPlus = boundsXPlus - stringWidth(actionPlus) * 34 / 48;\n'
+     '    int boundsSelect = boundsPlus - stringWidth(actionSelect) * 34 / 48;\n', 1),
+    ('ui/console/console_ui.cpp', 'drawString(actionPlus + actionX + actionB + actionA,',
+     'drawString(actionSelect + actionPlus + actionX + actionB + actionA,', 1),
+    ('ui/console/console_ui.cpp', '(actionPlus != "" && (pressed & defaultKeys[INPUT_START]))) {',
+     '(actionPlus != "" && (pressed & defaultKeys[INPUT_START]))\n'
+     '            || (actionSelect != "" && (pressed & defaultKeys[INPUT_SELECT]))) {', 1),
+    ('ui/console/console_ui.cpp', '                    return defaultKeys[INPUT_START];\n',
+     '                    return defaultKeys[INPUT_START];\n'
+     '                else if (touchStart.x >= boundsSelect && touchStart.x < boundsPlus)\n'
+     '                    return defaultKeys[INPUT_SELECT];\n', 1),
+    ('ui/console/console_ui.cpp', 'menu("NooDS", files, index, "Settings", "Exit");',
+     'menu("NooDS", files, index, "Settings", "Roms", "Exit");', 1),
+    ('ui/console/console_ui.cpp',
+     '        else if (pressed & defaultKeys[INPUT_START]) {\n'
+     '            // Close the file browser\n',
+     '        else if (pressed & defaultKeys[INPUT_START]) {\n'
+     '            // Go to the ROMs folder (the one next to noods.ini)\n'
+     '            curPath = Settings::basePath + "/roms";\n'
+     '            index = 0;\n'
+     '        }\n'
+     '        else if (pressed & defaultKeys[INPUT_SELECT]) {\n'
+     '            // Close the file browser\n', 1),
     # Start in the given folder; B goes up to "" (the drive list on the Xbox).
     ('ui/console/console_ui.cpp', '    basePath = curPath = root;', '    basePath = "";\n    curPath = root;', 1),
     ('ui/console/console_ui.cpp', 'std::to_string(core->fps)', 'std::to_string((long long)core->fps)', 1),

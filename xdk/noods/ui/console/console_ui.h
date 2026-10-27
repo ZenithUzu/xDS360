@@ -133,7 +133,7 @@ private:
     static int stringWidth(std::string &string);
 
     static uint32_t menu(std::string title, std::vector<MenuItem> &items,
-        int &index, std::string actionX = "", std::string actionPlus = "");
+        int &index, std::string actionX = "", std::string actionPlus = "", std::string actionSelect = "");
     static uint32_t message(std::string title, std::string text, int type = 0);
 
     static void settingsMenu();

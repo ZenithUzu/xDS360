@@ -77,7 +77,7 @@ const uint8_t ConsoleUI::charWidths[] = {
     16, 12, 18, 16, 9, 20, 21, 18, 21, 20,
     10, 20, 20, 8, 12, 19, 9, 30, 20, 21,
     21, 21, 12, 16, 12, 20, 17, 29, 17, 17,
-    16, 9, 8, 9, 12, 0, 40, 40, 40, 40
+    16, 9, 8, 9, 12, 50, 50, 50, 50, 50
 };
 
 void ConsoleUI::drawRectangle(float x, float y, float w, float h, uint32_t color) {
@@ -97,7 +97,7 @@ void ConsoleUI::drawString(std::string string, float x, float y, float size, uin
         float tx = 48.0f * (((uint8_t)string[i] - 32) % 10);
         float ty = 48.0f * (((uint8_t)string[i] - 32) / 10);
         drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,
-            (uint8_t)string[i] >= 0x80 ? 0xFFFFFFFF : color);
+            (uint8_t)string[i] >= 0x7F ? 0xFFFFFFFF : color);
         offset += charWidths[(uint8_t)string[i] - 32];
     }
 }
@@ -383,8 +383,9 @@ int ConsoleUI::setPath(std::string path) {
 }
 
 uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
-    int &index, std::string actionX, std::string actionPlus) {
+    int &index, std::string actionX, std::string actionPlus, std::string actionSelect) {
     // Define the action strings
+    if (actionSelect != "") actionSelect = "\x7F " + actionSelect + "     ";
     if (actionPlus != "") actionPlus = "\x83 " + actionPlus + "     ";
     if (actionX != "") actionX = "\x82 " + actionX + "     ";
     std::string actionB = "\x81 Back     ";
@@ -395,6 +396,7 @@ uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
     int boundsBX = boundsAB - stringWidth(actionB) * 34 / 48;
     int boundsXPlus = boundsBX - stringWidth(actionX) * 34 / 48;
     int boundsPlus = boundsXPlus - stringWidth(actionPlus) * 34 / 48;
+    int boundsSelect = boundsPlus - stringWidth(actionSelect) * 34 / 48;
 
     // Define variables for button input
     bool upHeld = false;
@@ -418,7 +420,7 @@ uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
         drawString(title, SCALE(72), SCALE(30), SCALE(42), palette[1]);
         drawRectangle(SCALE(30), SCALE(88), SCALE(1220), lineHeight, palette[1]);
         drawRectangle(SCALE(30), SCALE(648), SCALE(1220), lineHeight, palette[1]);
-        drawString(actionPlus + actionX + actionB + actionA, SCALE(1218), SCALE(667), SCALE(34), palette[1], true);
+        drawString(actionSelect + actionPlus + actionX + actionB + actionA, SCALE(1218), SCALE(667), SCALE(34), palette[1], true);
 
         // Scan for key input
         uint32_t pressed = getInputPress();
@@ -454,7 +456,8 @@ uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
 
         // Return button presses so they can be handled externally
         if (((pressed & defaultKeys[INPUT_A]) && !touchMode) || (pressed & defaultKeys[INPUT_B]) || (actionX != ""
-            && (pressed & defaultKeys[INPUT_X])) || (actionPlus != "" && (pressed & defaultKeys[INPUT_START]))) {
+            && (pressed & defaultKeys[INPUT_X])) || (actionPlus != "" && (pressed & defaultKeys[INPUT_START]))
+            || (actionSelect != "" && (pressed & defaultKeys[INPUT_SELECT]))) {
             touchMode = false;
             return pressed;
         }
@@ -527,6 +530,8 @@ uint32_t ConsoleUI::menu(std::string title, std::vector<MenuItem> &items,
                     return defaultKeys[INPUT_X];
                 else if (touchStart.x >= boundsPlus && touchStart.x < boundsXPlus)
                     return defaultKeys[INPUT_START];
+                else if (touchStart.x >= boundsSelect && touchStart.x < boundsPlus)
+                    return defaultKeys[INPUT_SELECT];
             }
             touchStarted = false;
         }
@@ -704,7 +709,7 @@ void ConsoleUI::fileBrowser() {
         closedir(dir);
 
         // Create the file browser menu
-        uint32_t pressed = menu("NooDS", files, index, "Settings", "Exit");
+        uint32_t pressed = menu("NooDS", files, index, "Settings", "Roms", "Exit");
 
         // Handle menu input
         if (pressed & defaultKeys[INPUT_A]) {
@@ -740,6 +745,11 @@ void ConsoleUI::fileBrowser() {
             settingsMenu();
         }
         else if (pressed & defaultKeys[INPUT_START]) {
+            // Go to the ROMs folder (the one next to noods.ini)
+            curPath = Settings::basePath + "/roms";
+            index = 0;
+        }
+        else if (pressed & defaultKeys[INPUT_SELECT]) {
             // Close the file browser
             return;
         }

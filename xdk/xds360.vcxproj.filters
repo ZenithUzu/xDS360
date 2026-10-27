@@ -12,6 +12,9 @@
     <ClCompile Include="frontend\main.cpp">
       <Filter></Filter>
     </ClCompile>
+    <ClCompile Include="frontend\xbox_buttons.cpp">
+      <Filter></Filter>
+    </ClCompile>
     <ClCompile Include="noods\core\core.cpp">
       <Filter></Filter>
     </ClCompile>

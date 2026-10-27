@@ -28,7 +28,8 @@ flags=(-w -std=c++11 -O2 -pthread -fms-extensions -DXDS_SIM -DLOG_LEVEL=0 -DNOOD
        -I"$repo_root/tools/xdk/fake_xdk" -I"$repo_root/xdk/compat" -I"$repo_root/xdk/noods/core")
 
 objects=()
-for source in "$repo_root/xdk/frontend/main.cpp" "$repo_root/xdk/compat/xds_files.cpp" \
+for source in "$repo_root/xdk/frontend/main.cpp" "$repo_root/xdk/frontend/xbox_buttons.cpp" \
+              "$repo_root/xdk/compat/xds_files.cpp" \
               "$repo_root/xdk/compat/xds_platform.cpp" "${noods[@]}"; do
     object="$build/obj/$(echo "${source#$repo_root/}" | tr '/' '_').o"
     mkdir -p "$build/obj"
@@ -44,15 +45,15 @@ cc -O2 -c "$repo_root/tools/xdk/sim/sim_files.c" -o "$build/sim_files.o"
 
 # One step per screen frame (60 per second).
 script="wait:40 shot:01-roms-folder
-press:B wait:20 shot:02-drives
-press:A wait:20 shot:03-emulator-folder
-press:B wait:10 press:DOWN wait:5 press:DOWN wait:5 press:A wait:30
-press:DOWN wait:5 press:A wait:240 shot:04-game
-press:RS wait:30 shot:05-pause-menu
+press:B wait:20 shot:02-emulator-folder
+press:B wait:20 shot:03-drives
+press:START wait:20 shot:04-start-goes-to-roms
+press:DOWN wait:5 press:A wait:240 shot:05-game
+press:RS wait:30 shot:06-pause-menu
 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3 press:DOWN wait:3
-press:A wait:30 shot:06-settings
-press:B wait:20 press:DOWN wait:3 press:A wait:30 shot:07-back-to-browser
-press:START wait:10"
+press:A wait:30 shot:07-settings
+press:B wait:20 press:DOWN wait:3 press:A wait:30 shot:08-back-to-browser
+press:BACK wait:10"
 
 SIM_ROOT="$console" SIM_SHOTS="$build" SIM_SCRIPT="$(echo $script)" "$build/xds360-sim"
 
