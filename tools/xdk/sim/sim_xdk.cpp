@@ -140,7 +140,7 @@ void WINAPI Sleep(DWORD milliseconds) { usleep(milliseconds * 1000); }
 BOOL WINAPI CreateDirectory(LPCSTR path, void *) { return mkdir(hostPath(path).c_str(), 0777) == 0; }
 DWORD WINAPI GetFileAttributes(LPCSTR path) {
     struct stat info;
-    if (stat(hostPath(path).c_str(), &info) != 0) return INVALID_FILE_ATTRIBUTES;
+    if (stat(hostPath(path).c_str(), &info) != 0) return (DWORD)-1; // INVALID_FILE_ATTRIBUTES
     return S_ISDIR(info.st_mode) ? FILE_ATTRIBUTE_DIRECTORY : 0;
 }
 
@@ -188,6 +188,7 @@ DWORD WINAPI XLaunchNewImage(LPCSTR, DWORD) {
     _exit(0);
 }
 DWORD WINAPI XSetThreadProcessor(HANDLE, DWORD) { return 0; }
+void WINAPI GlobalMemoryStatus(MEMORYSTATUS *m) { m->dwTotalPhys = 512u << 20; m->dwAvailPhys = 400u << 20; }
 HANDLE WINAPI GetCurrentThread() { return 0; }
 long ObCreateSymbolicLink(void *, void *) { return 0; } // drives map to SIM_ROOT/<name>
 

@@ -38,7 +38,7 @@ press:B wait:2 shot:02-emulator-folder
 press:B wait:2 shot:03-drives
 press:Y wait:2 press:A wait:2 shot:04-subfolder
 press:B wait:2 press:DOWN wait:2 shot:05-rom-selected
-press:A wait:150 shot:06-game
+press:A wait:400 shot:06-game
 hold:BACK+START:120 wait:5 shot:07-back-to-menu
 press:BACK"
 

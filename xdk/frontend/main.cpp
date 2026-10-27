@@ -27,6 +27,7 @@ extern "C" long ObCreateSymbolicLink(KernelString *link, KernelString *device);
 namespace {
 
 const char *kTitle = "xDS360 dev";
+const char *kVersion = "0.1.0-dev"; // change when something visible changes
 const char *kLogPath = "game:\\xds360.log";
 const char *kOldLogPath = "game:\\xds360-anterior.log";
 const char *kConfigPath = "game:\\xds360.cfg";
@@ -61,13 +62,24 @@ void logLine(const char *format, ...) {
     fflush(logFile);
 }
 
+void logMemory(const char *when) {
+    MEMORYSTATUS memory;
+    memory.dwLength = sizeof(memory);
+    GlobalMemoryStatus(&memory);
+    logLine("Memory %s: %u MB free of %u MB", when, (unsigned)(memory.dwAvailPhys / 1048576),
+            (unsigned)(memory.dwTotalPhys / 1048576));
+}
+
 void logOpen() {
     // Keep the previous session's log: it may show the steps before a freeze.
     remove(kOldLogPath);
-    rename(kLogPath, kOldLogPath);
+    const bool kept = rename(kLogPath, kOldLogPath) == 0;
     logFile = fopen(kLogPath, "wc"); // "c": fflush commits to disk
     if (!logFile) logFile = fopen(kLogPath, "w");
-    logLine("%s (built %s %s)", kTitle, __DATE__, __TIME__);
+    logLine("==== %s %s, built %s %s ====", kTitle, kVersion, __DATE__, __TIME__);
+    logLine("Log: %s (previous session %s)", kLogPath,
+            kept ? "moved to xds360-anterior.log" : "not found or not moved");
+    logMemory("at start");
 }
 
 // ---------------------------------------------------------------- video
@@ -601,6 +613,40 @@ std::string fileName(const std::string &path) {
 
 // ---------------------------------------------------------------- game
 
+// Where the time of each DS frame goes, summed over a window of time.
+struct FrameTimes {
+    long long start, core, upload, present, save, wait;
+    unsigned frames, video, slices;
+
+    void reset(long long now) {
+        start = now;
+        core = upload = present = save = wait = 0;
+        frames = video = slices = 0;
+    }
+    void add(const FrameTimes &other) {
+        core += other.core;
+        upload += other.upload;
+        present += other.present;
+        save += other.save;
+        wait += other.wait;
+        frames += other.frames;
+        video += other.video;
+        slices += other.slices;
+    }
+    double seconds(long long now) const { return (now - start) / 1000000.0; }
+    double fps(long long now) const { return frames / seconds(now); }
+    // Average milliseconds per DS frame.
+    double perFrame(long long total) const { return frames ? total / 1000.0 / frames : 0.0; }
+};
+
+void logTimes(const char *label, const FrameTimes &t, long long now) {
+    logLine("%s fps=%.1f video=%.1f | ms per frame: core=%.1f upload=%.1f present=%.1f save=%.1f "
+            "wait=%.1f | core returns per frame=%.1f",
+            label, t.fps(now), t.video / t.seconds(now), t.perFrame(t.core), t.perFrame(t.upload),
+            t.perFrame(t.present), t.perFrame(t.save), t.perFrame(t.wait),
+            t.frames ? (double)t.slices / t.frames : 0.0);
+}
+
 // Runs one game until Back+Start is held or it stops. Returns to the browser.
 void runGame(const Choice &rom) {
     const std::string name = fileName(rom.path);
@@ -635,14 +681,17 @@ void runGame(const Choice &rom) {
         return;
     }
     logLine("Core ready in %.1f s", (xds::clockMicroseconds() - startTime) / 1000000.0);
+    logMemory("with the game loaded");
 
     static uint16_t frame[emu::kWidth * emu::kHeight];
     int cursorX = 128, cursorY = 96;
     uint32_t lastCompleted = emu::completedFrames();
     long long now = xds::clockMicroseconds();
     long long nextFrameTime = now, lastSave = now, lastProgress = now, exitHeldSince = 0;
-    long long statsStart = now, statsCore = 0, logStatsAt = now + 5000000;
-    unsigned statsFrames = 0, statsVideo = 0;
+    FrameTimes second, fiveSeconds, session; // on screen, in the log, at the end
+    second.reset(now);
+    fiveSeconds.reset(now);
+    session.reset(now);
     bool haveFrame = false;
     const std::string shortName = name.substr(0, statusPanel.cols);
     lines.clear();
@@ -660,7 +709,8 @@ void runGame(const Choice &rom) {
             return;
         }
         now = xds::clockMicroseconds();
-        statsCore += now - before;
+        second.core += now - before;
+        second.slices++;
 
         const uint32_t completed = emu::completedFrames();
         if (completed == lastCompleted) {
@@ -673,7 +723,7 @@ void runGame(const Choice &rom) {
             }
             continue;
         }
-        statsFrames += completed - lastCompleted;
+        second.frames += completed - lastCompleted;
         lastCompleted = completed;
         lastProgress = now;
 
@@ -690,59 +740,70 @@ void runGame(const Choice &rom) {
         cursorY = std::max(0, std::min(191, cursorY - stickStep(pad.rightY))); // stick up = screen up
         emu::setInput(dsButtons(pad), pad.rightTrigger > 32, cursorX, cursorY);
 
+        long long mark = xds::clockMicroseconds();
         if (emu::takeFrame(frame)) {
             haveFrame = true;
             uploadScreens(frame, cursorX, cursorY);
-            statsVideo++;
+            second.video++;
         }
+        now = xds::clockMicroseconds();
+        second.upload += now - mark;
 
-        // Once a second: update the on-screen numbers.
-        if (now - statsStart >= 1000000) {
-            double seconds = (now - statsStart) / 1000000.0;
-            double fps = statsFrames / seconds;
-            double coreMs = statsFrames ? statsCore / 1000.0 / statsFrames : 0.0;
+        // Once a second: update the on-screen numbers (and every 5 s, the log).
+        if (now - second.start >= 1000000) {
             char text[64];
             text[sizeof(text) - 1] = 0;
             lines.clear();
-            lines.push_back(kTitle);
-            _snprintf(text, sizeof(text) - 1, "FPS   %5.1f", fps);
+            lines.push_back(std::string(kTitle) + " " + kVersion);
+            _snprintf(text, sizeof(text) - 1, "FPS   %5.1f", second.fps(now));
             lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "SPEED %5.0f%%", fps * 100.0 / 59.8261);
+            _snprintf(text, sizeof(text) - 1, "SPEED %5.0f%%", second.fps(now) * 100.0 / 59.8261);
             lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "CORE  %5.1f ms", coreMs);
+            _snprintf(text, sizeof(text) - 1, "CORE  %5.1f ms", second.perFrame(second.core));
             lines.push_back(text);
-            lines.push_back("");
+            _snprintf(text, sizeof(text) - 1, "VIDEO %5.1f ms", second.perFrame(second.upload + second.present));
+            lines.push_back(text);
+            _snprintf(text, sizeof(text) - 1, "WAIT  %5.1f ms", second.perFrame(second.wait));
+            lines.push_back(text);
             lines.push_back(shortName);
             lines.push_back("RT: touch  R-stick: move");
             lines.push_back("Back+Start: menu");
             setText(statusPanel, lines);
-            if (now >= logStatsAt) {
-                logLine("fps=%.1f video=%.1f core=%.1fms/frame", fps, statsVideo / seconds, coreMs);
-                logStatsAt = now + 5000000;
+            fiveSeconds.add(second);
+            session.add(second);
+            if (now - fiveSeconds.start >= 5000000) {
+                logTimes("Last 5 s:", fiveSeconds, now);
+                fiveSeconds.reset(now);
             }
-            statsStart = now;
-            statsCore = 0;
-            statsFrames = 0;
-            statsVideo = 0;
+            second.reset(now);
         }
 
+        mark = xds::clockMicroseconds();
         present(haveFrame, statusPanel);
+        now = xds::clockMicroseconds();
+        second.present += now - mark;
 
         if (now - lastSave >= kSaveMicroseconds) {
             emu::writeSave();
-            lastSave = now;
+            lastSave = xds::clockMicroseconds();
+            second.save += lastSave - now;
         }
 
         // Keep the DS at 59.83 frames per second when the console is fast enough.
         nextFrameTime += kFrameMicroseconds;
         now = xds::clockMicroseconds();
+        mark = now;
         if (nextFrameTime < now - 50000) nextFrameTime = now; // too far behind: don't rush
         while (now < nextFrameTime) {
             if (nextFrameTime - now > 2000) Sleep(1);
             now = xds::clockMicroseconds();
         }
+        second.wait += now - mark;
     }
 
+    now = xds::clockMicroseconds();
+    session.add(second);
+    logTimes("Whole game:", session, now);
     logLine("Back to the menu from %s", name.c_str());
     emu::stop(); // writes the save
 }

@@ -23,6 +23,8 @@ typedef DWORD (__stdcall *LPTHREAD_START_ROUTINE)(LPVOID);
 typedef union { struct { DWORD LowPart; LONG HighPart; }; long long QuadPart; } LARGE_INTEGER;
 typedef struct { DWORD dwFileAttributes; DWORD nFileSizeHigh; DWORD nFileSizeLow; CHAR cFileName[260]; } WIN32_FIND_DATA;
 typedef struct { void *opaque[8]; } CRITICAL_SECTION;
+typedef struct { DWORD dwLength, dwMemoryLoad; size_t dwTotalPhys, dwAvailPhys, dwTotalPageFile, dwAvailPageFile,
+                 dwTotalVirtual, dwAvailVirtual; } MEMORYSTATUS;
 
 #define WINAPI __stdcall
 #define TRUE 1
@@ -58,6 +60,7 @@ void WINAPI Sleep(DWORD);
 LONG WINAPI InterlockedExchange(volatile LONG *, LONG);
 BOOL WINAPI CreateDirectoryA(LPCSTR, void *);
 BOOL WINAPI CreateDirectory(LPCSTR, void *);
+void WINAPI GlobalMemoryStatus(MEMORYSTATUS *);
 DWORD WINAPI GetFileAttributes(LPCSTR);
 HANDLE WINAPI FindFirstFile(LPCSTR, WIN32_FIND_DATA *);
 BOOL WINAPI FindNextFile(HANDLE, WIN32_FIND_DATA *);
