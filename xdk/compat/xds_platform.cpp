@@ -15,15 +15,10 @@ namespace {
 
 // Hardware threads for the threads NooDS starts. A new thread takes the first
 // free one and gives it back when joined, so threads that come and go (the 3D
-// workers are recreated when settings change) always land on the same ones.
+// workers are recreated every frame) always land on the same ones.
 int processors[6] = { 2, 3, 4, 5 };
 int processorCount = 4;
 volatile long slotInUse[6];
-
-struct Start {
-    ThreadEntry entry;
-    void *argument;
-};
 
 int takeSlot() {
     for (int i = 0; i < processorCount; i++)
@@ -48,49 +43,23 @@ void setThreadProcessors(const int *list, int count) {
 #if defined(_XBOX)
 
 namespace {
-DWORD WINAPI threadMain(LPVOID parameter) {
-    Start start = *static_cast<Start*>(parameter);
-    delete static_cast<Start*>(parameter);
-    MemoryBarrier();
-    start.entry(start.argument);
-    MemoryBarrier();
-    return 0;
-}
-} // namespace
+typedef HANDLE Event;
+Event eventCreate() { return CreateEvent(NULL, FALSE, FALSE, NULL); } // auto-reset
+void eventSet(Event event) { SetEvent(event); }
+void eventWait(Event event) { WaitForSingleObject(event, INFINITE); }
 
-struct Thread {
-    HANDLE handle;
-    int slot;
-};
-
-void *threadStart(ThreadEntry entry, void *argument) {
-    Start *start = new Start;
-    start->entry = entry;
-    start->argument = argument;
-    MemoryBarrier(); // the thread must see the task fully built
-    HANDLE handle = CreateThread(NULL, 256 * 1024, threadMain, start, CREATE_SUSPENDED, NULL);
-    if (!handle) {
-        delete start;
-        entry(argument); // no thread available: run it here so nothing is lost
-        return 0;
-    }
-    Thread *thread = new Thread;
-    thread->handle = handle;
-    thread->slot = takeSlot();
-    if (thread->slot >= 0) XSetThreadProcessor(handle, processors[thread->slot]);
+typedef DWORD (WINAPI *RawEntry)(LPVOID);
+bool rawThreadStart(RawEntry entry, void *argument, int processor) {
+    HANDLE handle = CreateThread(NULL, 256 * 1024, entry, argument, CREATE_SUSPENDED, NULL);
+    if (!handle) return false;
+    if (processor >= 0) XSetThreadProcessor(handle, processor);
     ResumeThread(handle);
-    return thread;
+    CloseHandle(handle); // the worker lives for the whole program
+    return true;
 }
-
-void threadJoin(void *handle) {
-    if (!handle) return;
-    Thread *thread = static_cast<Thread*>(handle);
-    WaitForSingleObject(thread->handle, INFINITE);
-    CloseHandle(thread->handle);
-    MemoryBarrier();
-    freeSlot(thread->slot);
-    delete thread;
-}
+#define XDS_RAW_ENTRY DWORD WINAPI
+#define XDS_RAW_RETURN return 0
+} // namespace
 
 void *mutexCreate() {
     CRITICAL_SECTION *section = new CRITICAL_SECTION;
@@ -130,43 +99,44 @@ long atomicExchange(volatile long *target, long value) {
 #else // POSIX, for tests on a PC
 
 namespace {
-void *threadMain(void *parameter) {
-    Start start = *static_cast<Start*>(parameter);
-    delete static_cast<Start*>(parameter);
-    start.entry(start.argument);
-    return 0;
+struct EventData {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    bool set;
+};
+typedef EventData *Event;
+Event eventCreate() {
+    Event event = new EventData;
+    pthread_mutex_init(&event->mutex, 0);
+    pthread_cond_init(&event->cond, 0);
+    event->set = false;
+    return event;
 }
+void eventSet(Event event) {
+    pthread_mutex_lock(&event->mutex);
+    event->set = true;
+    pthread_cond_signal(&event->cond);
+    pthread_mutex_unlock(&event->mutex);
+}
+void eventWait(Event event) {
+    pthread_mutex_lock(&event->mutex);
+    while (!event->set) pthread_cond_wait(&event->cond, &event->mutex);
+    event->set = false; // auto-reset, like the Xbox event
+    pthread_mutex_unlock(&event->mutex);
+}
+
+typedef void *(*RawEntry)(void *);
+bool rawThreadStart(RawEntry entry, void *argument, int) {
+    pthread_t handle;
+    if (pthread_create(&handle, 0, entry, argument) != 0) return false;
+    pthread_detach(handle); // the worker lives for the whole program
+    return true;
+}
+#define XDS_RAW_ENTRY void *
+#define XDS_RAW_RETURN return 0
 } // namespace
 
-struct Thread {
-    pthread_t handle;
-    int slot;
-};
-
-void *threadStart(ThreadEntry entry, void *argument) {
-    Start *start = new Start;
-    start->entry = entry;
-    start->argument = argument;
-    Thread *thread = new Thread;
-    if (pthread_create(&thread->handle, 0, threadMain, start) != 0) {
-        delete start;
-        delete thread;
-        entry(argument);
-        return 0;
-    }
-    thread->slot = takeSlot(); // only bookkeeping on a PC
-    return thread;
-}
-
 void threadYield() { sched_yield(); }
-
-void threadJoin(void *handle) {
-    if (!handle) return;
-    Thread *thread = static_cast<Thread*>(handle);
-    pthread_join(thread->handle, 0);
-    freeSlot(thread->slot);
-    delete thread;
-}
 
 void *mutexCreate() {
     pthread_mutex_t *mutex = new pthread_mutex_t;
@@ -201,3 +171,93 @@ long atomicExchange(volatile long *target, long value) {
 } // namespace xds
 
 #endif
+
+// ---------------------------------------------------------------- thread pool
+// NooDS starts its 2D and 3D threads every frame and joins them at the end of
+// it. Creating a thread is slow on the Xbox, so each hardware thread gets one
+// worker that sleeps between tasks and is reused. (melonDS also keeps its
+// render threads alive between frames.)
+namespace xds {
+namespace {
+
+struct Worker {
+    Event start, done;
+    ThreadEntry entry;
+    void *argument;
+    int slot;        // hardware-thread slot, or -1 for an extra worker
+    Worker *next;    // in the list of free extra workers
+};
+
+Worker *pinned[6];   // one per slot, made on first use
+Worker *spare;       // free extra workers (more threads than slots)
+void *spareMutex;
+
+XDS_RAW_ENTRY workerMain(void *parameter) {
+    Worker *worker = static_cast<Worker*>(parameter);
+    for (;;) {
+        eventWait(worker->start);
+        barrier(); // see the task written before start was set
+        worker->entry(worker->argument);
+        barrier(); // publish the task's writes before done is set
+        eventSet(worker->done);
+    }
+    XDS_RAW_RETURN;
+}
+
+Worker *newWorker(int slot) {
+    Worker *worker = new Worker;
+    worker->start = eventCreate();
+    worker->done = eventCreate();
+    worker->slot = slot;
+    worker->next = 0;
+    if (!rawThreadStart(workerMain, worker, slot >= 0 ? processors[slot] : -1)) {
+        delete worker; // shortcut: its two events leak, only if the system is out of threads
+        return 0;
+    }
+    return worker;
+}
+
+} // namespace
+
+void *threadStart(ThreadEntry entry, void *argument) {
+    Worker *worker;
+    int slot = takeSlot();
+    if (slot >= 0) {
+        if (!pinned[slot]) pinned[slot] = newWorker(slot);
+        worker = pinned[slot];
+    } else {
+        if (!spareMutex) spareMutex = mutexCreate(); // shortcut: assumes the first extra start isn't concurrent
+        mutexLock(spareMutex);
+        worker = spare;
+        if (worker) spare = worker->next;
+        mutexUnlock(spareMutex);
+        if (!worker) worker = newWorker(-1);
+    }
+    if (!worker) { // no thread available: run it here so nothing is lost
+        freeSlot(slot);
+        entry(argument);
+        return 0;
+    }
+    worker->entry = entry;
+    worker->argument = argument;
+    barrier();
+    eventSet(worker->start);
+    return worker;
+}
+
+void threadJoin(void *handle) {
+    if (!handle) return;
+    Worker *worker = static_cast<Worker*>(handle);
+    eventWait(worker->done);
+    barrier();
+    if (worker->slot >= 0) {
+        freeSlot(worker->slot);
+    } else {
+        mutexLock(spareMutex);
+        worker->next = spare;
+        spare = worker;
+        mutexUnlock(spareMutex);
+    }
+}
+
+} // namespace xds

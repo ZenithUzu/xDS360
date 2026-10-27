@@ -48,6 +48,8 @@ DWORD WINAPI ResumeThread(HANDLE);
 DWORD WINAPI XSetThreadProcessor(HANDLE, DWORD);
 HANDLE WINAPI GetCurrentThread();
 DWORD WINAPI WaitForSingleObject(HANDLE, DWORD);
+HANDLE WINAPI CreateEvent(void *, BOOL, BOOL, LPCSTR);
+BOOL WINAPI SetEvent(HANDLE);
 BOOL WINAPI CloseHandle(HANDLE);
 void WINAPI InitializeCriticalSection(CRITICAL_SECTION *);
 void WINAPI DeleteCriticalSection(CRITICAL_SECTION *);

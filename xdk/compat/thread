@@ -82,9 +82,11 @@ private:
 
 namespace this_thread {
 #if defined(_XBOX)
-// On the Xbox 360 each worker spins on its own hardware thread; only stop the
-// compiler from caching the value being waited on (as XenonDS does).
-inline void yield() { xds::compilerBarrier(); }
+// On the Xbox 360 each worker spins on its own hardware thread. Besides
+// stopping the compiler from caching the value being waited on, lower this
+// hardware thread's priority for a moment (__db16cyc): its sibling on the same
+// core (often the emulator or a 3D worker) gets the core meanwhile.
+inline void yield() { xds::compilerBarrier(); __db16cyc(); }
 #else
 // A PC may have fewer cores than threads: give the core away while waiting.
 inline void yield() { xds::threadYield(); }

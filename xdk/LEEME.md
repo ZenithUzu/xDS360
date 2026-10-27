@@ -84,6 +84,10 @@ por cuadro. Si algo falla en la consola, mándalo.
   regenera con `scripts/fetch_noods.sh` y luego ese script.
 - `compat/`: versiones propias de `<thread>`, `<mutex>`, `<atomic>`, `<chrono>`
   y `<condition_variable>` (VS2010 no las tiene), hechas con funciones del XDK.
+  Los hilos se reutilizan: NooDS pide hilos nuevos para el 2D y el 3D en cada
+  cuadro, y aquí cada hilo de hardware tiene uno que duerme entre tareas (melonDS
+  también mantiene vivos sus hilos de dibujo). Mientras esperan, ceden el núcleo
+  al hilo vecino (`__db16cyc`).
 - `noods/ui/`: la interfaz de consola de NooDS (menús, explorador, imágenes),
   también convertida por ese script. Al arrancar, `main.cpp` cambia los
   símbolos de botones de su fuente por los íconos de Xbox.
