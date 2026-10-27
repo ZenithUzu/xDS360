@@ -1,7 +1,7 @@
 # xDS360 con VS2010 y el XDK
 
-Versión en desarrollo: arranca **una** ROM, muestra las dos pantallas y los FPS.
-Todavía no tiene sonido, menú ni explorador de ROMs.
+Versión en desarrollo: un explorador simple para elegir la ROM, las dos
+pantallas y los FPS. Todavía no tiene sonido ni opciones.
 
 ## Compilar
 
@@ -11,16 +11,37 @@ Todavía no tiene sonido, menú ni explorador de ROMs.
 
 ## Poner en la consola
 
+Copia solo `default.xex` a una carpeta de la consola. Al abrirlo crea solo:
+
 ```
 (carpeta del emulador)\
     default.xex
-    roms\
-        juego.nds        <- una sola ROM; si hay varias, se usa la primera por orden alfabético
+    roms\       <- pon aquí tus .nds (también puedes usar subcarpetas)
+    saves\      <- partidas guardadas (juego.sav), cada 5 segundos y al salir
+    bios\       <- opcional: bios7.bin, bios9.bin, firmware.bin
+    xds360.cfg  <- recuerda la última carpeta abierta
+    xds360.log
 ```
 
-- El nombre de la ROM debe tener **máximo 42 caracteres** (límite de FATX).
-- La partida se guarda junto a la ROM (`juego.sav`) cada 5 segundos y al salir.
-- Opcional: `bios7.bin`, `bios9.bin` y `firmware.bin` junto a `default.xex`. Sin ellos usa arranque directo.
+- Los nombres de archivo deben tener **máximo 42 caracteres** (límite de FATX).
+- Sin BIOS usa arranque directo.
+
+## Explorador
+
+Abre en la última carpeta que usaste (la primera vez, en `roms\`). Muestra
+carpetas `[entre corchetes]` y archivos `.nds` con su tamaño.
+
+| Botón | Qué hace |
+|---|---|
+| Cruceta o stick izquierdo | Moverse (mantener para avanzar rápido) |
+| LB / RB | Página arriba / abajo |
+| A | Abrir carpeta o jugar |
+| B | Subir una carpeta; desde la raíz de una unidad, ver las unidades |
+| Y | Ir a `roms\` |
+| Back | Salir al dashboard |
+
+Unidades: carpeta del emulador (`game:\`), disco duro (`hdd:\`) y USB
+(`usb0:\` a `usb2:\`). Solo aparecen las que estén conectadas.
 
 ## Controles
 
@@ -32,7 +53,7 @@ Todavía no tiene sonido, menú ni explorador de ROMs.
 | Cruceta | Cruceta |
 | Stick derecho | Mueve el cursor táctil |
 | RT | Toca la pantalla |
-| Back + Start (1.5 s) | Salir al dashboard |
+| Back + Start (1.5 s) | Volver al explorador |
 
 ## Log
 
@@ -56,3 +77,5 @@ por cuadro. Si algo falla en la consola, mándalo.
   comprueba que las huellas de cuadros sean iguales a las de NooDS original.
 - `tools/xdk/check_syntax.sh`: revisa todos los archivos como si fuera VS2010
   para Xbox, con encabezados falsos del XDK.
+- `tools/xdk/sim/run_sim.sh`: corre el `main.cpp` real en la PC con un XDK
+  simulado (dibuja en una imagen, botones de un guion) y saca capturas.

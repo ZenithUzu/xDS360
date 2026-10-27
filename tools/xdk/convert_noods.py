@@ -60,6 +60,10 @@ TEXT_FIXES = [
      '*registers[0] = sqrt((double)*registers[0]);', 1),
     ('io/div_sqrt.cpp', 'sqrtResult = sqrt((uint32_t)sqrtParam);',
      'sqrtResult = sqrt((double)(uint32_t)sqrtParam);', 1),
+    # Save/state/cheat folders: the Xbox needs "\\" in paths (game:\\saves\\x.sav).
+    ('memory/cartridge.cpp', 'Settings::basePath + "/saves"', 'Settings::basePath + XDS_SLASH "saves"', 1),
+    ('memory/cartridge.cpp', 'Settings::basePath + "/states"', 'Settings::basePath + XDS_SLASH "states"', 1),
+    ('memory/cartridge.cpp', 'Settings::basePath + "/cheats"', 'Settings::basePath + XDS_SLASH "cheats"', 1),
     # A static std::vector filled from a braced list -> fill it from an array.
     ('settings.cpp', re.compile(r'std::vector<Setting> Settings::settings = \{(.*?)\n\};\n', re.S),
      lambda m: ('static Setting xdsSettingsInit[] = {%s\n};\nstd::vector<Setting> Settings::settings(xdsSettingsInit,\n'

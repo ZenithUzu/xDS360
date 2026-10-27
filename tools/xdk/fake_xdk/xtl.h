@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <string.h>
 
-typedef unsigned long DWORD;
+typedef unsigned int DWORD; // 32 bits, as on the Xbox 360 (unsigned long is 64-bit on Linux)
 typedef unsigned short WORD;
 typedef unsigned char BYTE;
 typedef short SHORT;
@@ -31,6 +31,7 @@ typedef struct { void *opaque[8]; } CRITICAL_SECTION;
 #define CREATE_SUSPENDED 0x4
 #define ERROR_SUCCESS 0L
 #define FILE_ATTRIBUTE_DIRECTORY 0x10
+#define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
 #define INVALID_HANDLE_VALUE ((HANDLE)(long)-1)
 #define FAILED(hr) (((HRESULT)(hr)) < 0)
 #define SUCCEEDED(hr) (((HRESULT)(hr)) >= 0)
@@ -57,6 +58,8 @@ BOOL WINAPI QueryPerformanceFrequency(LARGE_INTEGER *);
 void WINAPI Sleep(DWORD);
 LONG WINAPI InterlockedExchange(volatile LONG *, LONG);
 BOOL WINAPI CreateDirectoryA(LPCSTR, void *);
+BOOL WINAPI CreateDirectory(LPCSTR, void *);
+DWORD WINAPI GetFileAttributes(LPCSTR);
 HANDLE WINAPI FindFirstFile(LPCSTR, WIN32_FIND_DATA *);
 BOOL WINAPI FindNextFile(HANDLE, WIN32_FIND_DATA *);
 BOOL WINAPI FindClose(HANDLE);

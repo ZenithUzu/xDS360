@@ -19,7 +19,8 @@ enum {
 };
 
 struct Options {
-    std::string romPath;   // game:\roms\game.nds
+    std::string romPath;    // game:\roms\game.nds
+    std::string dataFolder; // the save goes in <dataFolder>\saves (game: on the Xbox)
     std::string biosFolder; // where optional bios7/bios9/firmware files live
     bool romInRam;          // read the whole ROM into memory at start
     int renderThreads;      // software-3D worker threads (0 = none)

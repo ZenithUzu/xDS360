@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// xDS360 minimal frontend for the Xbox 360 XDK: finds one ROM, runs it, shows
-// both DS screens stacked in 720p, reads the first controller, writes a log.
+// xDS360 frontend for the Xbox 360 XDK: a simple file browser to pick a ROM,
+// then both DS screens stacked in 720p, the first controller, and a log.
 #define NOMINMAX
 #include <xtl.h>
 
@@ -15,11 +15,22 @@
 #include "font8x8_basic.h"
 #include "xds_platform.h"
 
+// Kernel call that makes a device reachable by a name, such as the hard drive
+// as "hdd:". Same layout as the kernel's ANSI_STRING.
+struct KernelString {
+    unsigned short length;
+    unsigned short maximumLength;
+    const char *buffer;
+};
+extern "C" long ObCreateSymbolicLink(KernelString *link, KernelString *device);
+
 namespace {
 
 const char *kTitle = "xDS360 dev";
 const char *kLogPath = "game:\\xds360.log";
 const char *kOldLogPath = "game:\\xds360-anterior.log";
+const char *kConfigPath = "game:\\xds360.cfg";
+const char *kRomsFolder = "game:\\roms\\";
 
 // DS refresh rate is 59.8261 Hz.
 const long long kFrameMicroseconds = 16715;
@@ -29,10 +40,6 @@ const long long kExitHoldMicroseconds = 1500000;
 
 // Screen placement in the 1280x720 back buffer: 256x384 scaled to 480x720.
 const float kScreenX = 400.0f, kScreenY = 0.0f, kScreenW = 480.0f, kScreenH = 720.0f;
-
-// Text panel: 24 columns x 10 rows of 8x8 characters, drawn at 2x.
-const int kTextCols = 24, kTextRows = 10;
-const int kTextW = kTextCols * 8, kTextH = kTextRows * 8;
 
 // ---------------------------------------------------------------- log
 
@@ -79,18 +86,28 @@ struct Vertex {
     float u, v;
 };
 
+// Each text row is 8 pixels of letters plus 2 of space, drawn at 2x.
+const int kRowHeight = 10;
+
+// A block of 8x8 text drawn at 2x. The Xbox 360 does not wait for the GPU
+// when the CPU locks a texture, so a texture is rewritten only after the fence
+// set when it was last drawn has passed (as in AdvanXe360's UI renderer).
+struct TextPanel {
+    IDirect3DTexture9 *texture;
+    DWORD fence;
+    int cols, rows;
+    float x, y;
+};
+
 IDirect3DDevice9 *device = 0;
 IDirect3DVertexShader9 *vertexShader = 0;
 IDirect3DPixelShader9 *pixelShader = 0;
 IDirect3DVertexDeclaration9 *vertexDecl = 0;
-// The Xbox 360 does not wait for the GPU when the CPU locks a texture, so each
-// texture is rewritten only after the fence set when it was last drawn has
-// passed (same approach as AdvanXe360's UI renderer).
 IDirect3DTexture9 *screenTextures[2] = { 0, 0 };
 DWORD screenFences[2] = { 0, 0 };
 int screenIndex = 0;
-IDirect3DTexture9 *textTexture = 0;
-DWORD textFence = 0;
+TextPanel statusPanel = { 0, 0, 24, 10, 16.0f, 16.0f };  // in game, left of the screens
+TextPanel menuPanel = { 0, 0, 76, 32, 32.0f, 40.0f };    // browser and messages
 DWORD colorTable[32768]; // BGR555 -> A8R8G8B8
 
 bool compileShader(const char *source, const char *profile, ID3DXBuffer **code) {
@@ -105,6 +122,13 @@ bool compileShader(const char *source, const char *profile, ID3DXBuffer **code) 
     }
     if (errors) errors->Release();
     return true;
+}
+
+bool createTexture(int width, int height, IDirect3DTexture9 **texture) {
+    HRESULT hr = device->CreateTexture(width, height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT,
+                                       texture, NULL);
+    if (FAILED(hr)) logLine("CreateTexture %dx%d failed (0x%08X)", width, height, (unsigned)hr);
+    return SUCCEEDED(hr);
 }
 
 bool videoInit() {
@@ -140,13 +164,11 @@ bool videoInit() {
     };
     device->CreateVertexDeclaration(elements, &vertexDecl);
 
-    for (int i = 0; i < 2; i++) {
-        hr = device->CreateTexture(emu::kWidth, emu::kHeight, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT,
-                                   &screenTextures[i], NULL);
-        if (FAILED(hr)) { logLine("Screen texture failed (0x%08X)", (unsigned)hr); return false; }
-    }
-    hr = device->CreateTexture(kTextW, kTextH, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT, &textTexture, NULL);
-    if (FAILED(hr)) { logLine("Text texture failed (0x%08X)", (unsigned)hr); return false; }
+    if (!createTexture(emu::kWidth, emu::kHeight, &screenTextures[0]) ||
+        !createTexture(emu::kWidth, emu::kHeight, &screenTextures[1]) ||
+        !createTexture(statusPanel.cols * 8, statusPanel.rows * kRowHeight, &statusPanel.texture) ||
+        !createTexture(menuPanel.cols * 8, menuPanel.rows * kRowHeight, &menuPanel.texture))
+        return false;
 
     for (int i = 0; i < 32768; i++) {
         DWORD r = i & 0x1F, g = (i >> 5) & 0x1F, b = (i >> 10) & 0x1F;
@@ -159,8 +181,7 @@ bool videoInit() {
     return true;
 }
 
-// Converts a DS frame into the next screen texture. The two textures take
-// turns, so the CPU never writes one the GPU may still be drawing.
+// Converts a DS frame into the next screen texture (the two take turns).
 void uploadScreens(const uint16_t *pixels, int cursorX, int cursorY) {
     screenIndex ^= 1;
     IDirect3DTexture9 *texture = screenTextures[screenIndex];
@@ -187,26 +208,29 @@ void uploadScreens(const uint16_t *pixels, int cursorX, int cursorY) {
     texture->UnlockRect(0);
 }
 
-// Draws up to kTextRows lines of text into the text panel.
-void setText(const std::vector<std::string> &lines) {
+// Writes lines of text into a panel. Row `highlight` is drawn inverted.
+void setText(TextPanel &panel, const std::vector<std::string> &lines, int highlight = -1) {
     device->SetTexture(0, NULL);
-    if (textFence) device->BlockOnFence(textFence);
+    if (panel.fence) device->BlockOnFence(panel.fence);
     D3DLOCKED_RECT locked;
-    if (FAILED(textTexture->LockRect(0, &locked, NULL, 0))) return;
-    for (int row = 0; row < kTextRows; row++) {
-        const std::string empty;
+    if (FAILED(panel.texture->LockRect(0, &locked, NULL, 0))) return;
+    const std::string empty;
+    for (int row = 0; row < panel.rows; row++) {
         const std::string &line = row < (int)lines.size() ? lines[row] : empty;
-        for (int py = 0; py < 8; py++) {
-            DWORD *out = (DWORD*)((BYTE*)locked.pBits + (row * 8 + py) * locked.Pitch);
-            for (int col = 0; col < kTextCols; col++) {
+        const DWORD ink = row == highlight ? 0xFF000000 : 0xFFFFFFFF;
+        const DWORD paper = row == highlight ? 0xFFFFFFFF : 0xFF000000;
+        for (int py = 0; py < kRowHeight; py++) {
+            DWORD *out = (DWORD*)((BYTE*)locked.pBits + (row * kRowHeight + py) * locked.Pitch);
+            for (int col = 0; col < panel.cols; col++) {
                 unsigned char c = col < (int)line.size() ? (unsigned char)line[col] : ' ';
-                unsigned char bits = font8x8_basic[c & 0x7F][py];
+                if (c >= 128) c = '?'; // the font has no accents (UTF-8 bytes from FTP)
+                unsigned char bits = py < 8 ? font8x8_basic[c][py] : 0;
                 for (int px = 0; px < 8; px++)
-                    out[col * 8 + px] = (bits & (1 << px)) ? 0xFFFFFFFF : 0xFF000000;
+                    out[col * 8 + px] = (bits & (1 << px)) ? ink : paper;
             }
         }
     }
-    textTexture->UnlockRect(0);
+    panel.texture->UnlockRect(0);
 }
 
 // Draws a texture in pixel coordinates and returns the fence for it.
@@ -224,7 +248,7 @@ DWORD drawQuad(IDirect3DTexture9 *texture, float x, float y, float w, float h) {
     return device->InsertFence();
 }
 
-void present(bool showScreens) {
+void present(bool showScreens, TextPanel &panel) {
     device->Clear(0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
     device->BeginScene();
     device->SetRenderState(D3DRS_VIEWPORTENABLE, FALSE); // positions are in pixels
@@ -243,7 +267,7 @@ void present(bool showScreens) {
     device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     if (showScreens)
         screenFences[screenIndex] = drawQuad(screenTextures[screenIndex], kScreenX, kScreenY, kScreenW, kScreenH);
-    textFence = drawQuad(textTexture, 16.0f, 16.0f, kTextW * 2.0f, kTextH * 2.0f);
+    panel.fence = drawQuad(panel.texture, panel.x, panel.y, panel.cols * 16.0f, panel.rows * kRowHeight * 2.0f);
     device->EndScene();
     device->Present(NULL, NULL, NULL, NULL);
 }
@@ -253,15 +277,16 @@ void present(bool showScreens) {
 struct Pad {
     WORD buttons;
     BYTE rightTrigger;
-    SHORT rightX, rightY;
+    SHORT leftY, rightX, rightY;
 };
 
 Pad readPad() {
-    Pad pad = { 0, 0, 0, 0 };
+    Pad pad = { 0, 0, 0, 0, 0 };
     XINPUT_STATE state;
     if (XInputGetState(0, &state) == ERROR_SUCCESS) {
         pad.buttons = state.Gamepad.wButtons;
         pad.rightTrigger = state.Gamepad.bRightTrigger;
+        pad.leftY = state.Gamepad.sThumbLY;
         pad.rightX = state.Gamepad.sThumbRX;
         pad.rightY = state.Gamepad.sThumbRY;
     }
@@ -292,54 +317,262 @@ int stickStep(SHORT value) {
     return value < 0 ? -step : step;
 }
 
-// ---------------------------------------------------------------- ROM
+// Waits until no button is held, so a press does not leak into the next screen.
+void waitForRelease(TextPanel &panel) {
+    for (int i = 0; i < 180 && readPad().buttons != 0; i++) {
+        present(false, panel);
+        Sleep(16);
+    }
+}
 
-struct Rom {
-    std::string path;
+// ---------------------------------------------------------------- files
+
+void mountDrive(const char *link, const char *deviceName) {
+    KernelString linkName = { (unsigned short)strlen(link), (unsigned short)(strlen(link) + 1), link };
+    KernelString devicePath = { (unsigned short)strlen(deviceName), (unsigned short)(strlen(deviceName) + 1),
+                                deviceName };
+    long status = ObCreateSymbolicLink(&linkName, &devicePath);
+    logLine("Mount %s -> %s: %s", link, deviceName, status >= 0 ? "ok" : "not available");
+}
+
+struct Drive {
+    const char *path;
+    const char *label;
+};
+const Drive kDrives[] = {
+    { "game:\\", "Emulator folder" },
+    { "hdd:\\", "Hard drive" },
+    { "usb0:\\", "USB 1" },
+    { "usb1:\\", "USB 2" },
+    { "usb2:\\", "USB 3" }
+};
+
+void mountDrives() {
+    mountDrive("\\??\\hdd:", "\\Device\\Harddisk0\\Partition1");
+    mountDrive("\\??\\usb0:", "\\Device\\Mass0");
+    mountDrive("\\??\\usb1:", "\\Device\\Mass1");
+    mountDrive("\\??\\usb2:", "\\Device\\Mass2");
+}
+
+// The folders the emulator uses, next to default.xex.
+void createFolders() {
+    static const char *folders[] = { "game:\\roms", "game:\\saves", "game:\\bios" };
+    for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
+        if (CreateDirectory(folders[i], NULL))
+            logLine("Created %s", folders[i]);
+    }
+}
+
+bool folderExists(const std::string &path) {
+    DWORD attributes = GetFileAttributes(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool hasNdsExtension(const char *name) {
+    size_t length = strlen(name);
+    return length > 4 && _stricmp(name + length - 4, ".nds") == 0;
+}
+
+std::string loadLastFolder() {
+    std::string folder;
+    FILE *file = fopen(kConfigPath, "r");
+    if (!file) return folder;
+    char line[512];
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "lastFolder=", 11) != 0) continue;
+        folder = line + 11;
+        while (!folder.empty() && (folder[folder.size() - 1] == '\n' || folder[folder.size() - 1] == '\r'))
+            folder.erase(folder.size() - 1);
+    }
+    fclose(file);
+    return folder;
+}
+
+void saveLastFolder(const std::string &folder) {
+    FILE *file = fopen(kConfigPath, "w");
+    if (!file) return;
+    fprintf(file, "lastFolder=%s\n", folder.c_str());
+    fclose(file);
+}
+
+// ---------------------------------------------------------------- browser
+
+struct Entry {
     std::string name;
+    bool folder;
     unsigned long long size;
 };
 
-void findRoms(const char *folder, std::vector<Rom> *roms) {
-    std::string pattern = std::string(folder) + "*.nds";
+bool entryOrder(const Entry &a, const Entry &b) {
+    if (a.folder != b.folder) return a.folder; // folders first
+    return _stricmp(a.name.c_str(), b.name.c_str()) < 0;
+}
+
+// Folders and .nds files in `folder` ("hdd:\Games\"), sorted.
+std::vector<Entry> listFolder(const std::string &folder) {
+    std::vector<Entry> entries;
     WIN32_FIND_DATA data;
-    HANDLE find = FindFirstFile(pattern.c_str(), &data);
-    if (find == INVALID_HANDLE_VALUE) return;
+    HANDLE find = FindFirstFile((folder + "*").c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE) return entries;
     do {
-        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-        Rom rom;
-        rom.name = data.cFileName;
-        rom.path = std::string(folder) + data.cFileName;
-        rom.size = ((unsigned long long)data.nFileSizeHigh << 32) | data.nFileSizeLow;
-        roms->push_back(rom);
-    } while (FindNextFile(find, &data));
+        const bool isFolder = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (!strcmp(data.cFileName, ".") || !strcmp(data.cFileName, "..")) continue;
+        if (!isFolder && !hasNdsExtension(data.cFileName)) continue;
+        Entry entry;
+        entry.name = data.cFileName;
+        entry.folder = isFolder;
+        entry.size = ((unsigned long long)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+        entries.push_back(entry);
+    } while (entries.size() < 5000 && FindNextFile(find, &data));
     FindClose(find);
+    std::sort(entries.begin(), entries.end(), entryOrder);
+    return entries;
 }
 
-bool byName(const Rom &a, const Rom &b) { return _stricmp(a.name.c_str(), b.name.c_str()) < 0; }
-
-// ---------------------------------------------------------------- screens
-
-std::string shortText(const std::string &text) {
-    return text.size() <= (size_t)kTextCols ? text : text.substr(0, kTextCols);
+// "hdd:\Games\DS\" -> "hdd:\Games\". A drive root goes back to the drive list ("").
+std::string parentFolder(const std::string &folder) {
+    // Folders always end in a backslash; a drive root ("hdd:\") has only that one.
+    if (folder.find('\\') + 1 >= folder.size()) return "";
+    return folder.substr(0, folder.find_last_of('\\', folder.size() - 2) + 1);
 }
 
-// Shows a message until B is pressed (or forever if video failed).
+std::string fitText(const std::string &text, int width) {
+    if ((int)text.size() <= width) return text;
+    return "..." + text.substr(text.size() - (width - 3)); // keep the end of long paths
+}
+
+struct Choice {
+    std::string path;
+    unsigned long long size;
+};
+
+// Lets the user pick a .nds file. Returns false if they leave to the dashboard.
+bool browse(std::string *folder, Choice *choice) {
+    std::vector<Entry> entries;
+    std::vector<std::string> driveLabels;
+    std::vector<int> drives; // indexes into kDrives that are reachable
+    int selected = 0, top = 0;
+    bool reload = true;
+    WORD previous = 0xFFFF; // ignore buttons still held when the browser opens
+    long long repeatAt = 0;
+    const int listRows = menuPanel.rows - 6;
+
+    for (;;) {
+        if (reload) {
+            reload = false;
+            entries.clear();
+            drives.clear();
+            if (folder->empty()) {
+                for (int i = 0; i < (int)(sizeof(kDrives) / sizeof(kDrives[0])); i++)
+                    if (folderExists(kDrives[i].path)) drives.push_back(i);
+            } else {
+                entries = listFolder(*folder);
+            }
+            selected = 0;
+            top = 0;
+        }
+        const int count = folder->empty() ? (int)drives.size() : (int)entries.size();
+
+        // Draw.
+        std::vector<std::string> lines;
+        lines.push_back(std::string(kTitle) + " - choose a game");
+        lines.push_back(fitText(folder->empty() ? "Drives" : *folder, menuPanel.cols));
+        lines.push_back(std::string(menuPanel.cols, '-'));
+        if (selected < top) top = selected;
+        if (selected >= top + listRows) top = selected - listRows + 1;
+        for (int i = top; i < count && i < top + listRows; i++) {
+            std::string line;
+            if (folder->empty()) {
+                const Drive &drive = kDrives[drives[i]];
+                line = std::string(" ") + drive.path + "  " + drive.label;
+            } else if (entries[i].folder) {
+                line = " [" + entries[i].name + "]";
+            } else {
+                char size[32];
+                _snprintf(size, sizeof(size) - 1, "%6.1f MB", entries[i].size / 1048576.0);
+                size[sizeof(size) - 1] = 0;
+                line = " " + fitText(entries[i].name, menuPanel.cols - 12);
+                line.resize(menuPanel.cols - 10, ' ');
+                line += size;
+            }
+            lines.push_back(line);
+        }
+        if (count == 0)
+            lines.push_back(folder->empty() ? " (no drives found)" : " (no folders or .nds files here)");
+        while ((int)lines.size() < menuPanel.rows - 2) lines.push_back("");
+        lines.push_back(std::string(menuPanel.cols, '-'));
+        lines.push_back("A: open   B: up   Y: roms folder   LB/RB: page   Back: exit");
+        setText(menuPanel, lines, count ? 3 + selected - top : -1);
+        present(false, menuPanel);
+        Sleep(16);
+
+        // Input.
+        Pad pad = readPad();
+        WORD buttons = pad.buttons;
+        if (pad.leftY > 16000) buttons |= XINPUT_GAMEPAD_DPAD_UP;
+        if (pad.leftY < -16000) buttons |= XINPUT_GAMEPAD_DPAD_DOWN;
+        if (previous == 0xFFFF) { previous = buttons ? buttons : 0; continue; }
+        const WORD pressed = buttons & ~previous;
+        previous = buttons;
+
+        // Held up/down/LB/RB repeat after 0.4 s, every 0.08 s.
+        const WORD moves = XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
+                           XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        WORD move = pressed & moves;
+        const long long now = xds::clockMicroseconds();
+        if (move) repeatAt = now + 400000;
+        else if ((buttons & moves) && now >= repeatAt) { move = buttons & moves; repeatAt = now + 80000; }
+        if (move & XINPUT_GAMEPAD_DPAD_UP) selected--;
+        if (move & XINPUT_GAMEPAD_DPAD_DOWN) selected++;
+        if (move & XINPUT_GAMEPAD_LEFT_SHOULDER) selected -= listRows;
+        if (move & XINPUT_GAMEPAD_RIGHT_SHOULDER) selected += listRows;
+        selected = std::max(0, std::min(count - 1, selected));
+
+        if (pressed & XINPUT_GAMEPAD_BACK) return false;
+        if (pressed & XINPUT_GAMEPAD_Y) { *folder = kRomsFolder; reload = true; continue; }
+        if (pressed & XINPUT_GAMEPAD_B) {
+            if (!folder->empty()) {
+                std::string from = *folder;
+                *folder = parentFolder(*folder);
+                reload = true;
+                logLine("Browser: up from %s to %s", from.c_str(), folder->empty() ? "drives" : folder->c_str());
+            }
+            continue;
+        }
+        if ((pressed & XINPUT_GAMEPAD_A) && count > 0) {
+            if (folder->empty()) {
+                *folder = kDrives[drives[selected]].path;
+                reload = true;
+            } else if (entries[selected].folder) {
+                *folder += entries[selected].name + "\\";
+                reload = true;
+            } else {
+                choice->path = *folder + entries[selected].name;
+                choice->size = entries[selected].size;
+                return true;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- messages
+
+// Shows a message until B is pressed.
 void showMessage(const std::vector<std::string> &lines) {
     std::vector<std::string> wrapped;
     for (size_t i = 0; i < lines.size(); i++) {
         std::string line = lines[i];
         do {
-            wrapped.push_back(line.substr(0, kTextCols));
-            line = line.size() > (size_t)kTextCols ? line.substr(kTextCols) : "";
+            wrapped.push_back(line.substr(0, menuPanel.cols));
+            line = line.size() > (size_t)menuPanel.cols ? line.substr(menuPanel.cols) : "";
         } while (!line.empty());
     }
     wrapped.push_back("");
-    wrapped.push_back("B: exit");
-    setText(wrapped);
+    wrapped.push_back("B: back");
+    setText(menuPanel, wrapped);
     bool released = false; // B may still be held from the game
     for (;;) {
-        present(false);
+        present(false, menuPanel);
         const bool pressed = (readPad().buttons & XINPUT_GAMEPAD_B) != 0;
         if (pressed && released) return;
         if (!pressed) released = true;
@@ -347,39 +580,25 @@ void showMessage(const std::vector<std::string> &lines) {
     }
 }
 
-void quit() {
-    logLine("Leaving to the dashboard");
-    if (logFile) fclose(logFile);
-    XLaunchNewImage("", 0);
+void showError(const std::string &error, const std::string &detail) {
+    std::vector<std::string> lines;
+    lines.push_back(kTitle);
+    lines.push_back("");
+    lines.push_back(error);
+    if (!detail.empty()) lines.push_back(detail);
+    showMessage(lines);
 }
 
-} // namespace
+std::string fileName(const std::string &path) {
+    size_t slash = path.find_last_of('\\');
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
 
-void __cdecl main() {
-    XSetThreadProcessor(GetCurrentThread(), 0); // emulator on core 0
-    logOpen();
-    if (!videoInit()) { quit(); return; }
+// ---------------------------------------------------------------- game
 
-    std::vector<Rom> roms;
-    findRoms("game:\\roms\\", &roms);
-    if (roms.empty()) findRoms("game:\\", &roms);
-    std::sort(roms.begin(), roms.end(), byName);
-    logLine("ROMs found: %u", (unsigned)roms.size());
-    for (size_t i = 0; i < roms.size() && i < 20; i++)
-        logLine("  %s (%llu bytes)", roms[i].path.c_str(), roms[i].size);
-    if (roms.empty()) {
-        std::vector<std::string> lines;
-        lines.push_back(kTitle);
-        lines.push_back("");
-        lines.push_back("No .nds file found.");
-        lines.push_back("Copy one to game:\\roms\\");
-        lines.push_back("(name up to 42 chars)");
-        showMessage(lines);
-        quit();
-        return;
-    }
-
-    const Rom &rom = roms[0];
+// Runs one game until Back+Start is held or it stops. Returns to the browser.
+void runGame(const Choice &rom) {
+    const std::string name = fileName(rom.path);
     // Small ROMs are read into memory once; big ones (Pokemon B/W is 256MB)
     // are read from the file as the game asks for them.
     const bool romInRam = rom.size <= 128ULL * 1024 * 1024;
@@ -388,30 +607,26 @@ void __cdecl main() {
 
     emu::Options options;
     options.romPath = rom.path;
-    options.biosFolder = "game:";
+    options.dataFolder = "game:";
+    options.biosFolder = "game:\\bios";
     options.romInRam = romInRam;
     options.renderThreads = 3;
-    logLine("Starting %s (romInRam=%d, 3D threads=3)", rom.path.c_str(), romInRam ? 1 : 0);
+    logLine("Starting %s (%llu bytes, romInRam=%d, 3D threads=3)", rom.path.c_str(), rom.size,
+            romInRam ? 1 : 0);
 
     std::vector<std::string> lines;
     lines.push_back(kTitle);
     lines.push_back("");
     lines.push_back("Loading...");
-    lines.push_back(shortText(rom.name));
-    setText(lines);
-    present(false);
+    lines.push_back(name);
+    setText(menuPanel, lines);
+    present(false, menuPanel);
 
     std::string error;
     long long startTime = xds::clockMicroseconds();
     if (!emu::start(options, &error)) {
         logLine("Start failed: %s", error.c_str());
-        lines.clear();
-        lines.push_back(kTitle);
-        lines.push_back("");
-        lines.push_back(error);
-        lines.push_back(shortText(rom.name));
-        showMessage(lines);
-        quit();
+        showError(error, name);
         return;
     }
     logLine("Core ready in %.1f s", (xds::clockMicroseconds() - startTime) / 1000000.0);
@@ -424,18 +639,20 @@ void __cdecl main() {
     long long statsStart = now, statsCore = 0, logStatsAt = now + 5000000;
     unsigned statsFrames = 0, statsVideo = 0;
     bool haveFrame = false;
+    const std::string shortName = name.substr(0, statusPanel.cols);
+    lines.clear();
+    lines.push_back(kTitle);
+    lines.push_back("");
+    lines.push_back(shortName);
+    setText(statusPanel, lines);
 
     for (;;) {
         long long before = xds::clockMicroseconds();
         if (!emu::run(&error)) {
             logLine("Core stopped: %s | %s", error.c_str(), emu::diagnostics().c_str());
-            emu::writeSave();
-            lines.clear();
-            lines.push_back(kTitle);
-            lines.push_back("");
-            lines.push_back(error);
-            showMessage(lines);
-            break;
+            emu::stop();
+            showError(error, name);
+            return;
         }
         now = xds::clockMicroseconds();
         statsCore += now - before;
@@ -445,14 +662,9 @@ void __cdecl main() {
             // runCore also returns when an emulated CPU halts or resumes.
             if (now - lastProgress > kStallMicroseconds || emu::unknownOpcodes() >= 4096) {
                 logLine("No progress: %s", emu::diagnostics().c_str());
-                emu::writeSave();
-                lines.clear();
-                lines.push_back(kTitle);
-                lines.push_back("");
-                lines.push_back("The game stopped running.");
-                lines.push_back("See xds360.log");
-                showMessage(lines);
-                break;
+                emu::stop();
+                showError("The game stopped running.", "See xds360.log");
+                return;
             }
             continue;
         }
@@ -483,25 +695,24 @@ void __cdecl main() {
         if (now - statsStart >= 1000000) {
             double seconds = (now - statsStart) / 1000000.0;
             double fps = statsFrames / seconds;
+            double coreMs = statsFrames ? statsCore / 1000.0 / statsFrames : 0.0;
             char text[64];
+            text[sizeof(text) - 1] = 0;
             lines.clear();
             lines.push_back(kTitle);
             _snprintf(text, sizeof(text) - 1, "FPS   %5.1f", fps);
-            text[sizeof(text) - 1] = 0;
             lines.push_back(text);
             _snprintf(text, sizeof(text) - 1, "SPEED %5.0f%%", fps * 100.0 / 59.8261);
             lines.push_back(text);
-            _snprintf(text, sizeof(text) - 1, "CORE  %5.1f ms",
-                      statsFrames ? statsCore / 1000.0 / statsFrames : 0.0);
+            _snprintf(text, sizeof(text) - 1, "CORE  %5.1f ms", coreMs);
             lines.push_back(text);
             lines.push_back("");
-            lines.push_back(shortText(rom.name));
+            lines.push_back(shortName);
             lines.push_back("RT: touch  R-stick: move");
-            lines.push_back("Back+Start: exit");
-            setText(lines);
+            lines.push_back("Back+Start: menu");
+            setText(statusPanel, lines);
             if (now >= logStatsAt) {
-                logLine("fps=%.1f video=%.1f core=%.1fms/frame", fps, statsVideo / seconds,
-                        statsFrames ? statsCore / 1000.0 / statsFrames : 0.0);
+                logLine("fps=%.1f video=%.1f core=%.1fms/frame", fps, statsVideo / seconds, coreMs);
                 logStatsAt = now + 5000000;
             }
             statsStart = now;
@@ -510,7 +721,7 @@ void __cdecl main() {
             statsVideo = 0;
         }
 
-        present(haveFrame);
+        present(haveFrame, statusPanel);
 
         if (now - lastSave >= kSaveMicroseconds) {
             emu::writeSave();
@@ -527,6 +738,34 @@ void __cdecl main() {
         }
     }
 
-    emu::stop();
+    logLine("Back to the menu from %s", name.c_str());
+    emu::stop(); // writes the save
+}
+
+void quit() {
+    logLine("Leaving to the dashboard");
+    if (logFile) fclose(logFile);
+    XLaunchNewImage("", 0);
+}
+
+} // namespace
+
+void __cdecl main() {
+    XSetThreadProcessor(GetCurrentThread(), 0); // emulator on core 0
+    logOpen();
+    if (!videoInit()) { quit(); return; }
+    createFolders();
+    mountDrives();
+
+    std::string folder = loadLastFolder();
+    if (folder.empty() || !folderExists(folder)) folder = kRomsFolder;
+    logLine("Browser starts in %s", folder.c_str());
+
+    Choice choice;
+    while (browse(&folder, &choice)) {
+        saveLastFolder(folder);
+        runGame(choice);
+        waitForRelease(menuPanel); // Back+Start may still be held
+    }
     quit();
 }

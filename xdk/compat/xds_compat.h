@@ -19,6 +19,13 @@
 #define XDS_BSWAP64(x) __builtin_bswap64(x)
 #endif
 
+// Folder separator in file paths: the Xbox 360 only accepts "\\".
+#if defined(_XBOX)
+#define XDS_SLASH "\\"
+#else
+#define XDS_SLASH "/"
+#endif
+
 // A fixed array of objects that have no default constructor. VS2010 cannot
 // build `Dma dma[2]` from `dma { Dma(this, 0), Dma(this, 1) }`, so each element
 // is built in place, in order, exactly where the plain array would be.

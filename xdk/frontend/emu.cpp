@@ -32,7 +32,7 @@ const char *errorText(int error) {
 
 bool start(const Options &options, std::string *error) {
     // Same core settings as the XenonDS v0.9.1 hardware build.
-    Settings::basePath = options.biosFolder;
+    Settings::basePath = options.dataFolder;
     Settings::directBoot = 1;
     Settings::romInRam = options.romInRam ? 1 : 0;
     Settings::fpsLimiter = 0;
@@ -42,7 +42,7 @@ bool start(const Options &options, std::string *error) {
     Settings::highRes3D = 0;
     Settings::screenGhost = 0;
     Settings::emulateAudio = 0;
-    Settings::savesFolder = 0;
+    Settings::savesFolder = 1; // <dataFolder>\saves\<rom name>.sav
     Settings::statesFolder = 0;
     Settings::cheatsFolder = 0;
     Settings::screenFilter = 0;
