@@ -102,6 +102,11 @@ TEXT_FIXES = [
     ('ui/console/console_ui.cpp', 'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0, color);',
      'drawTexture(fontTexture, tx, ty, 47, 47, x1, y, size, size, true, 0,\n'
      '            (uint8_t)string[i] >= 0x7F ? 0xFFFFFFFF : color);', 1),
+    # xDS360 look: the dark theme becomes black with neon green (0xAABBGGRR):
+    # background, text, separators, selected row, selection box, values, headers.
+    ('ui/console/console_ui.cpp',
+     '0xFF2D2D2D, 0xFFFFFFFF, 0xFF4B4B4B, 0xFF232323, 0xFFE1B955, 0xFFC8FF00, 0xFFA2A2A2, // Dark',
+     '0xFF000000, 0xFFE6FFE6, 0xFF1E3A1E, 0xFF0F2A0F, 0xFF14FF39, 0xFF14FF39, 0xFF7FBF7F, // Dark', 1),
     # Xbox button pictures fill their whole cell (main.cpp), so they are wider.
     ('ui/console/console_ui.cpp', '16, 9, 8, 9, 12, 0, 40, 40, 40, 40', '16, 9, 8, 9, 12, 50, 50, 50, 50, 50', 1),
     # A third footer action, bound to Back (Select): on the Xbox, Back exits the
@@ -127,6 +132,8 @@ TEXT_FIXES = [
      '                    return defaultKeys[INPUT_SELECT];\n', 1),
     ('ui/console/console_ui.cpp', 'menu("NooDS", files, index, "Settings", "Exit");',
      'menu("NooDS", files, index, "Settings", "Roms", "Exit");', 1),
+    # The browser and pause menu are titled xDS360 (after the fix above).
+    ('ui/console/console_ui.cpp', 'menu("NooDS", ', 'menu("xDS360", ', 2),
     ('ui/console/console_ui.cpp',
      '        else if (pressed & defaultKeys[INPUT_START]) {\n'
      '            // Close the file browser\n',

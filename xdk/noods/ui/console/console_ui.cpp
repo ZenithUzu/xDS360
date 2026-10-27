@@ -63,7 +63,7 @@ int ConsoleUI::menuTheme = 0;
 int ConsoleUI::keyBinds[] = {};
 
 const uint32_t ConsoleUI::themeColors[] = {
-    0xFF2D2D2D, 0xFFFFFFFF, 0xFF4B4B4B, 0xFF232323, 0xFFE1B955, 0xFFC8FF00, 0xFFA2A2A2, // Dark
+    0xFF000000, 0xFFE6FFE6, 0xFF1E3A1E, 0xFF0F2A0F, 0xFF14FF39, 0xFF14FF39, 0xFF7FBF7F, // Dark
     0xFFEBEBEB, 0xFF2D2D2D, 0xFFCDCDCD, 0xFFFFFFFF, 0xFFD2D732, 0xFFF05032, 0xFF727272 // Light
 };
 
@@ -709,7 +709,7 @@ void ConsoleUI::fileBrowser() {
         closedir(dir);
 
         // Create the file browser menu
-        uint32_t pressed = menu("NooDS", files, index, "Settings", "Roms", "Exit");
+        uint32_t pressed = menu("xDS360", files, index, "Settings", "Roms", "Exit");
 
         // Handle menu input
         if (pressed & defaultKeys[INPUT_A]) {
@@ -962,7 +962,7 @@ void ConsoleUI::pauseMenu() {
     int index = 0;
     while (true) {
         // Create the pause menu
-        uint32_t pressed = menu("NooDS", items, index);
+        uint32_t pressed = menu("xDS360", items, index);
 
         // Handle menu input
         if (pressed & defaultKeys[INPUT_A]) {
