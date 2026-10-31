@@ -49,8 +49,13 @@
 
 // Compatibility toggle for systems that don't have fdopen
 #ifdef NO_FDOPEN
+#ifdef __XSDK__
+#include "xds_unistd.h"
+#endif
 #define fdopen(...) (0)
+#ifndef __XSDK__
 #define ftruncate(...) (0)
+#endif
 #else
 #include "xds_unistd.h"
 #endif
