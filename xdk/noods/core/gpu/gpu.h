@@ -39,6 +39,10 @@ public:
     void loadState(FILE *file);
 
     bool getFrame(uint32_t *out, bool gbaCrop);
+    // Single display consumer only. The borrowed buffer stays alive until
+    // releaseFrameNative(), after the synchronous texture upload has copied it.
+    bool acquireFrameNative(uint32_t *&pixels);
+    void releaseFrameNative();
 #ifdef NOODS_XENON
     // Return the native DS image in the RGB555 index format consumed by the
     // Xbox picture-adjustment lookup. Non-native/ghosting modes retain the
@@ -77,8 +81,10 @@ private:
         bool top3D;
     };
 
+    bool canQueueFrame();
     std::queue<Buffers> framebuffers;
     std::atomic<bool> ready;
+    bool nativeFrameBorrowed; // display-consumer owned
     std::mutex mutex;
 
     std::atomic<bool> running;

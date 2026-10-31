@@ -121,3 +121,9 @@ No se compiló con VS2010/XDK ni se probó una Xbox 360 real. El benchmark de la
 ROM sintética sigue dominado por un bucle de espera y sus variaciones de tiempo
 no demuestran una mejora en New Super Mario Bros. La medida útil pendiente es
 la misma escena del juego en la consola.
+
+## Siguiente cambio: vídeo RGB6 nativo
+
+La versión `0.2.2-native-video-dev` añade una ruta de adquisición directa del
+cuadro original y conversión de color en shaders Xenos. Ver
+[VIDEO_NATIVO_XDK.md](VIDEO_NATIVO_XDK.md) para su alcance, pruebas y respaldo.

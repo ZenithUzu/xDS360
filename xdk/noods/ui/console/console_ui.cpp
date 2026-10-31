@@ -174,6 +174,7 @@ void ConsoleUI::initialize(int width, int height, std::string root, std::string 
 
     // Define the platform settings
     Setting platformSettingsItems[] = {
+        Setting("gpuNativeVideo", &gpuNativeVideo, false),
         Setting("showFpsCounter", &showFpsCounter, false),
         Setting("menuTheme", &menuTheme, false),
         Setting("language", &xdsLanguage, false),
@@ -238,7 +239,11 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
 
         // Update the framebuffer and start rendering
         bool shift = (Settings::highRes3D || Settings::screenFilter == 1);
-        const bool freshFrame = core->gpu.getFrame(framebuffer, gbaMode);
+        uint32_t *frameData = framebuffer;
+        const bool nativeVideo = useNativeVideo();
+        const bool freshFrame = nativeVideo ? core->gpu.acquireFrameNative(frameData) :
+            core->gpu.getFrame(framebuffer, gbaMode);
+        const bool borrowedFrame = nativeVideo && freshFrame;
         if (freshFrame || textureGba != gbaMode || textureShift != shift) {
             if (gbaTexture) destroyTexture(gbaTexture);
             if (topTexture) destroyTexture(topTexture);
@@ -257,19 +262,23 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
         }
         else { // DS mode
             // Draw the DS top screen
-            if (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing < 2) {
-                if (!topTexture) topTexture = createTexture(&framebuffer[0], 256 << shift, 192 << shift);
+            if ((freshFrame || topTexture) && (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing < 2)) {
+                if (!topTexture) topTexture = createTexture(frameData, 256 << shift, 192 << shift, borrowedFrame);
                 drawTexture(topTexture, 0, 0, 256 << shift, 192 << shift, layout.topX, layout.topY,
                     layout.topWidth, layout.topHeight, Settings::screenFilter, ScreenLayout::screenRotation);
             }
 
             // Draw the DS bottom screen
-            if (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing == 2) {
-                if (!botTexture) botTexture = createTexture(&framebuffer[(256 * 192) << (shift * 2)], 256 << shift, 192 << shift);
+            if ((freshFrame || botTexture) && (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing == 2)) {
+                if (!botTexture) botTexture = createTexture(&frameData[(256 * 192) << (shift * 2)], 256 << shift, 192 << shift, borrowedFrame);
                 drawTexture(botTexture, 0, 0, 256 << shift, 192 << shift, layout.botX, layout.botY,
                     layout.botWidth, layout.botHeight, Settings::screenFilter, ScreenLayout::screenRotation);
             }
         }
+
+        // LockRect/UnlockRect has copied the borrowed image into textures.
+        // Release before input, menus or Present; no core pointer escapes here.
+        if (borrowedFrame) core->gpu.releaseFrameNative();
 
         // Draw the FPS counter if enabled
         if (showFpsCounter)

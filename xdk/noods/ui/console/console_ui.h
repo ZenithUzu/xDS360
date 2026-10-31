@@ -76,6 +76,8 @@ public:
     static uint32_t framebuffer[256 * 192 * 8];
     static ScreenLayout layout;
     static bool gbaMode;
+    static int gpuNativeVideo;
+    static bool useNativeVideo();
 
     static int showFpsCounter;
     static int menuTheme;
@@ -88,7 +90,7 @@ public:
     // Functions that are implemented per-platform
     static void startFrame(uint32_t color);
     static void endFrame();
-    static void *createTexture(uint32_t *data, int width, int height);
+    static void *createTexture(uint32_t *data, int width, int height, bool nativeRgb6 = false);
     static void destroyTexture(void *texture);
     static void drawTexture(void *texture, float tx, float ty, float tw, float th, float x, float y,
         float w, float h, bool filter = true, int rotation = 0, uint32_t color = 0xFFFFFFFF);

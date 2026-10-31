@@ -89,6 +89,8 @@ def optimize(out):
         '            gbaTexture = topTexture = botTexture = nullptr;\n'
         '            pauseMenu();')
     replace(ui, '\n}\n\nint ConsoleUI::setPath', '\n' + cleanup + '}\n\nint ConsoleUI::setPath')
+    from native_video import apply_native_video
+    apply_native_video(out)
 
 if __name__ == '__main__':
     optimize(ROOT / 'xdk/noods')

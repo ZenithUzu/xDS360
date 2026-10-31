@@ -37,6 +37,7 @@ inline bool useHighResolutionOutput() {
 } // namespace
 
 Gpu::Gpu(Core *core): core(core), thread(nullptr), frames(0), activeFrameSkip(0), captureRenderFrame(false), capture3DFrame(false), gbaBlock(true), displayCapture(false), dirty3D(0), dispStat(), vCount(0), dispCapCnt(0), powCnt1(0) {
+    nativeFrameBorrowed = false;
     // Mark the thread as not drawing to start
     ready.store(false);
     running.store(false);
@@ -111,7 +112,36 @@ uint16_t Gpu::rgb6ToRgb5(uint32_t color) {
     return BIT(15) | (b << 10) | (g << 5) | r;
 }
 
+bool Gpu::canQueueFrame() {
+    std::lock_guard<std::mutex> guard(mutex);
+    return framebuffers.size() < 2;
+}
+
+bool Gpu::acquireFrameNative(uint32_t *&pixels) {
+    // No lossy conversion: the lower 18 bits hold R6/G6/B6. Do not borrow
+    // fallback modes, which have different geometry or temporal blending.
+    if (core->gbaMode || Settings::screenGhost || Settings::highRes3D ||
+        Settings::screenFilter == 1 || nativeFrameBorrowed) return false;
+    std::lock_guard<std::mutex> guard(mutex);
+    if (framebuffers.empty()) return false;
+    pixels = framebuffers.front().framebuffer;
+    nativeFrameBorrowed = true;
+    return true;
+}
+
+void Gpu::releaseFrameNative() {
+    if (!nativeFrameBorrowed) return;
+    std::lock_guard<std::mutex> guard(mutex);
+    Buffers &buffers = framebuffers.front();
+    delete[] buffers.framebuffer;
+    delete[] buffers.hiRes3D;
+    framebuffers.pop();
+    ready.store(!framebuffers.empty());
+    nativeFrameBorrowed = false;
+}
+
 bool Gpu::getFrame(uint32_t *out, bool gbaCrop) {
+    if (nativeFrameBorrowed) return false;
     // Check if a new frame is ready
     if (!ready.load())
         return false;
@@ -244,6 +274,7 @@ bool Gpu::getFrame(uint32_t *out, bool gbaCrop) {
 
 #ifdef NOODS_XENON
 bool Gpu::getFrameXenon(uint16_t *out, bool gbaCrop) {
+    if (nativeFrameBorrowed) return false;
     // Preserve upstream behavior exactly for the uncommon output modes. The
     // Xenon build forces native resolution, so this buffer covers every such
     // path (GBA crop, DS-to-GBA mode, and screen ghosting).
@@ -343,7 +374,7 @@ void Gpu::gbaScanline308() {
         core->dma[1].trigger(1);
 
         // Allow up to 2 framebuffers to be queued, to preserve frame pacing if emulation runs ahead
-        if (frames == 0 && framebuffers.size() < 2) {
+        if (frames == 0 && canQueueFrame()) {
             // Copy the completed sub-framebuffer to a new framebuffer
             Buffers buffers;
             buffers.framebuffer = new uint32_t[256 * 160];
@@ -712,7 +743,7 @@ void Gpu::scanline355() {
             core->gpu3D.swapBuffers();
 
         // Allow up to 2 framebuffers to be queued, to preserve frame pacing if emulation runs ahead
-        if (frames == 0 && framebuffers.size() < 2) {
+        if (frames == 0 && canQueueFrame()) {
             // Copy the completed sub-framebuffers to a new framebuffer
             Buffers buffers;
             buffers.framebuffer = new uint32_t[256 * 192 * 2];

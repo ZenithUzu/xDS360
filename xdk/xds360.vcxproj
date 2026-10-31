@@ -145,6 +145,7 @@
     <ClInclude Include="compat\xds_compat.h" />
     <ClInclude Include="compat\xds_platform.h" />
     <ClInclude Include="compat\xds_unistd.h" />
+    <ClInclude Include="frontend\xds_native_video.h" />
     <ClInclude Include="frontend\xds_text.h" />
     <ClInclude Include="noods\LICENSE" />
     <ClInclude Include="noods\core\core.h" />

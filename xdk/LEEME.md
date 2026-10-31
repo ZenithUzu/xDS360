@@ -122,3 +122,7 @@ por cuadro. Si algo falla en la consola, mándalo.
 
 Ver [OPTIMIZACION_XDK.md](../docs/OPTIMIZACION_XDK.md) para los cambios ARM,
 texturas, afinidad y salto de cuadros, y para comparar con la compilación anterior.
+
+La versión `0.2.2-native-video-dev` añade [conversión RGB6 en Xenos](../docs/VIDEO_NATIVO_XDK.md):
+sube el cuadro original a las texturas y convierte el color con shaders. Para
+comparar con la ruta anterior, usa `gpuNativeVideo=0` en `noods.ini`.

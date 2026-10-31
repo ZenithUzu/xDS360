@@ -31,3 +31,11 @@ mapfile -t sources < <(cd "$repo_root/xdk/noods/core" && find . -name '*.cpp' | 
 "$binary" "$rom_path" --cadence-stress "${NOODS_CADENCE_STRESS_FRAMES:-2000}"
 "$binary" "$rom_path" --benchmark "${NOODS_BENCHMARK_FRAMES:-600}"
 "$binary" "$rom_path" --renderer-benchmark "${NOODS_RENDERER_BENCHMARK_FRAMES:-120}"
+
+# Compile the same production core against a native-video test entry point.
+"$cxx" -w -std=gnu++11 -O2 -fstrict-aliasing -pthread \
+    -DLOG_LEVEL=0 -DNOODS_XENON=1 -DNO_FDOPEN=1 \
+    -I"$repo_root/xdk/compat" -I"$repo_root/xdk/noods/core" \
+    "$repo_root/tests/xdk_native_video_test.cpp" "${sources[@]}" \
+    "$repo_root/xdk/compat/xds_platform.cpp" -o "$build_dir/xds-native-video-test"
+"$build_dir/xds-native-video-test" "$rom_path"

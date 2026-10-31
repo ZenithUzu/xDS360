@@ -15,6 +15,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <math.h>
+#include "../../../xdk/frontend/xds_native_video.h"
 
 #include <string>
 #include <vector>
@@ -116,9 +118,11 @@ struct SimTexture : IDirect3DTexture9 {
 };
 SimTexture *bound = 0;
 float tint[4] = { 1, 1, 1, 1 };
-ID3DXBuffer shaderBuffer;
+ID3DXBuffer shaderBuffer, nativePointBuffer, nativeLinearBuffer;
+int shaderKind = 0;
+bool hardwareLinear = false;
 IDirect3DVertexShader9 vertexShaderObject;
-IDirect3DPixelShader9 pixelShaderObject;
+IDirect3DPixelShader9 pixelShaderObject, nativePointObject, nativeLinearObject;
 IDirect3DVertexDeclaration9 declarationObject;
 IDirect3DDevice9 deviceObject;
 IDirect3D9 d3dObject;
@@ -231,7 +235,11 @@ HRESULT IDirect3DTexture9::UnlockRect(UINT) { return 0; }
 DWORD IDirect3DTexture9::Release() { delete static_cast<SimTexture*>(this); return 0; }
 
 HRESULT IDirect3DDevice9::CreateVertexShader(const DWORD *, IDirect3DVertexShader9 **out) { *out = &vertexShaderObject; return 0; }
-HRESULT IDirect3DDevice9::CreatePixelShader(const DWORD *, IDirect3DPixelShader9 **out) { *out = &pixelShaderObject; return 0; }
+HRESULT IDirect3DDevice9::CreatePixelShader(const DWORD *code, IDirect3DPixelShader9 **out) {
+    *out = code == (const DWORD*)&nativePointBuffer ? &nativePointObject :
+        (code == (const DWORD*)&nativeLinearBuffer ? &nativeLinearObject : &pixelShaderObject);
+    return 0;
+}
 HRESULT IDirect3DDevice9::CreateVertexDeclaration(const D3DVERTEXELEMENT9 *, IDirect3DVertexDeclaration9 **out) {
     *out = &declarationObject;
     return 0;
@@ -251,11 +259,17 @@ HRESULT IDirect3DDevice9::Clear(DWORD, const void *, DWORD, DWORD color, float, 
 void IDirect3DDevice9::BeginScene() {}
 void IDirect3DDevice9::EndScene() {}
 void IDirect3DDevice9::SetRenderState(D3DRENDERSTATETYPE, DWORD) {}
-void IDirect3DDevice9::SetSamplerState(DWORD, D3DSAMPLERSTATETYPE, DWORD) {}
+void IDirect3DDevice9::SetSamplerState(DWORD, D3DSAMPLERSTATETYPE state, DWORD value) {
+    if (state == D3DSAMP_MINFILTER) hardwareLinear = value == D3DTEXF_LINEAR;
+}
 void IDirect3DDevice9::SetVertexDeclaration(IDirect3DVertexDeclaration9 *) {}
 void IDirect3DDevice9::SetVertexShader(IDirect3DVertexShader9 *) {}
-void IDirect3DDevice9::SetPixelShader(IDirect3DPixelShader9 *) {}
-void IDirect3DDevice9::SetPixelShaderConstantF(UINT, const float *values, DWORD) { memcpy(tint, values, sizeof(tint)); }
+void IDirect3DDevice9::SetPixelShader(IDirect3DPixelShader9 *shader) {
+    shaderKind = shader == &nativePointObject ? 1 : (shader == &nativeLinearObject ? 2 : 0);
+}
+void IDirect3DDevice9::SetPixelShaderConstantF(UINT index, const float *values, DWORD) {
+    if (index == 0) memcpy(tint, values, sizeof(tint));
+}
 void IDirect3DDevice9::SetTexture(DWORD, IDirect3DTexture9 *texture) { bound = static_cast<SimTexture*>(texture); }
 HRESULT IDirect3DDevice9::DrawPrimitiveUP(D3DPRIMITIVETYPE, UINT, const void *data, UINT stride) {
     // Strip order: top-left, top-right, bottom-left, bottom-right (x, y, z, w, u, v).
@@ -275,9 +289,30 @@ HRESULT IDirect3DDevice9::DrawPrimitiveUP(D3DPRIMITIVETYPE, UINT, const void *da
             int tx = (int)(u * bound->width), ty = (int)(t * bound->height);
             tx = tx < 0 ? 0 : (tx >= bound->width ? bound->width - 1 : tx);
             ty = ty < 0 ? 0 : (ty >= bound->height ? bound->height - 1 : ty);
-            unsigned c = bound->pixels[ty * bound->width + tx]; // 0xAABBGGRR as stored by NooDS
-            float r = (c & 0xFF) * tint[0], g = ((c >> 8) & 0xFF) * tint[1];
-            float b = ((c >> 16) & 0xFF) * tint[2], a = (c >> 24) / 255.0f * tint[3];
+            unsigned c = bound->pixels[ty * bound->width + tx];
+            if (shaderKind) c = xdsNativeRgb6ToRgb8(c);
+            float r = (float)(c & 0xFF), g = (float)((c >> 8) & 0xFF);
+            float b = (float)((c >> 16) & 0xFF), a = (c >> 24) / 255.0f;
+            if (shaderKind == 2 || (!shaderKind && hardwareLinear)) {
+                // Decode native colours before interpolation, matching HLSL.
+                float sx = u * bound->width - 0.5f, sy = t * bound->height - 0.5f;
+                int ix = (int)floor(sx), iy = (int)floor(sy);
+                float wx = sx - ix, wy = sy - iy;
+                r = g = b = a = 0;
+                for (int yy = 0; yy < 2; ++yy) for (int xx = 0; xx < 2; ++xx) {
+                    int cx = ix + xx, cy = iy + yy;
+                    cx = cx < 0 ? 0 : (cx >= bound->width ? bound->width - 1 : cx);
+                    cy = cy < 0 ? 0 : (cy >= bound->height ? bound->height - 1 : cy);
+                    unsigned sample = bound->pixels[cy * bound->width + cx];
+                    if (shaderKind) sample = xdsNativeRgb6ToRgb8(sample);
+                    float weight = (xx ? wx : 1 - wx) * (yy ? wy : 1 - wy);
+                    r += (sample & 255) * weight;
+                    g += ((sample >> 8) & 255) * weight;
+                    b += ((sample >> 16) & 255) * weight;
+                    a += (sample >> 24) / 255.0f * weight;
+                }
+            }
+            r *= tint[0]; g *= tint[1]; b *= tint[2]; a *= tint[3];
             unsigned &d = framebuffer[py * 1280 + px];
             float dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
             d = 0xFF000000 | ((unsigned)(r * a + dr * (1 - a)) << 16) | ((unsigned)(g * a + dg * (1 - a)) << 8) |
@@ -298,10 +333,12 @@ HRESULT IDirect3D9::CreateDevice(UINT, D3DDEVTYPE, void *, DWORD, D3DPRESENT_PAR
     return 0;
 }
 IDirect3D9 *WINAPI Direct3DCreate9(UINT) { return &d3dObject; }
-HRESULT WINAPI D3DXCompileShader(LPCSTR, UINT, const void *, void *, LPCSTR, LPCSTR, DWORD,
+HRESULT WINAPI D3DXCompileShader(LPCSTR source, UINT, const void *, void *, LPCSTR, LPCSTR, DWORD,
                                  ID3DXBuffer **code, ID3DXBuffer **errors, void **) {
-    *code = &shaderBuffer;
+    const bool native = strstr(source, "decodeRGB6") != 0;
     if (errors) *errors = 0;
+    if (native && getenv("SIM_FAIL_NATIVE_SHADERS")) { *code = 0; return -1; }
+    *code = !native ? &shaderBuffer : (strstr(source, "frac(p)") ? &nativeLinearBuffer : &nativePointBuffer);
     return 0;
 }
 

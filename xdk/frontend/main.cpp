@@ -15,6 +15,7 @@
 #include "../noods/core/settings.h"
 #include "xds_platform.h"
 #include "xds_unistd.h"
+#include "xds_native_video.h"
 
 // Kernel call that makes a device reachable by a name, such as the hard drive
 // as "hdd:". Same layout as the kernel's ANSI_STRING.
@@ -34,7 +35,7 @@ extern const unsigned int xboxButtonPixels[5][48 * 48];
 namespace {
 
 const char *kTitle = "xDS360";
-const char *kVersion = "0.2.1-perf-dev"; // change when something visible changes
+const char *kVersion = "0.2.2-native-video-dev"; // change when something visible changes
 const char *kLogPath = "game:\\xds360.log";
 const char *kOldLogPath = "game:\\xds360-anterior.log";
 const int kWidth = 1280, kHeight = 720;
@@ -105,11 +106,14 @@ struct Texture {
     IDirect3DTexture9 *d3d;
     int width, height;
     unsigned usedFrame;
+    bool nativeRgb6;
 };
 
 IDirect3DDevice9 *device = 0;
 IDirect3DVertexShader9 *vertexShader = 0;
 IDirect3DPixelShader9 *pixelShader = 0;
+IDirect3DPixelShader9 *nativePointShader = 0;
+IDirect3DPixelShader9 *nativeLinearShader = 0;
 IDirect3DVertexDeclaration9 *vertexDecl = 0;
 std::vector<Texture*> freeTextures; // released by ConsoleUI, ready for reuse
 unsigned frameNumber = 8;
@@ -154,6 +158,20 @@ bool videoInit() {
     if (!compileShader(kPixelShader, "ps_2_0", &code)) return false;
     device->CreatePixelShader((DWORD*)code->GetBufferPointer(), &pixelShader);
     code->Release();
+
+    // Optional acceleration: failure leaves the proven CPU conversion active.
+    if (compileShader(kNativePointShader, "ps_2_0", &code)) {
+        if (FAILED(device->CreatePixelShader((DWORD*)code->GetBufferPointer(), &nativePointShader)))
+            nativePointShader = 0;
+        code->Release();
+    }
+    if (compileShader(kNativeLinearShader, "ps_3_0", &code)) {
+        if (FAILED(device->CreatePixelShader((DWORD*)code->GetBufferPointer(), &nativeLinearShader)))
+            nativeLinearShader = 0;
+        code->Release();
+    }
+    logLine("Native RGB6 shaders: point=%s linear=%s (CPU fallback on failure)",
+            nativePointShader ? "ready" : "unavailable", nativeLinearShader ? "ready" : "unavailable");
 
     static const D3DVERTEXELEMENT9 elements[] = {
         { 0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
@@ -306,6 +324,7 @@ void mountDrive(const char *link, const char *deviceName) {
 long long statsStart = 0;
 unsigned statsFrames = 0;
 unsigned statsTextureUploads = 0;
+unsigned statsNativeUploads = 0;
 bool wasRunning = false;
 
 void logStats() {
@@ -317,16 +336,18 @@ void logStats() {
         statsStart = now;
         statsFrames = 0;
         statsTextureUploads = 0;
+        statsNativeUploads = 0;
     }
     statsFrames++;
     if (wasRunning && now - statsStart >= 5000000) {
-        logLine("Game fps=%d, screen fps=%.1f, texture uploads=%u, window ms=%u, frameskip=%d, workers3D=%d",
+        logLine("Game fps=%d, screen fps=%.1f, texture uploads=%u native=%u, window ms=%u, frameskip=%d, workers3D=%d",
                 ConsoleUI::core ? ConsoleUI::core->fps : 0,
-                statsFrames * 1000000.0 / (now - statsStart), statsTextureUploads,
+                statsFrames * 1000000.0 / (now - statsStart), statsTextureUploads, statsNativeUploads,
                 (unsigned)((now - statsStart) / 1000), Settings::frameskip, Settings::threaded3D);
         statsStart = now;
         statsFrames = 0;
         statsTextureUploads = 0;
+        statsNativeUploads = 0;
     }
 }
 
@@ -392,7 +413,17 @@ void ConsoleUI::endFrame() {
     logStats();
 }
 
-void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
+int ConsoleUI::gpuNativeVideo = 1;
+
+bool ConsoleUI::useNativeVideo() {
+    // Match getFrame()'s supported native geometry; keep temporal blending,
+    // GBA and high-resolution/filter output on the CPU path.
+    return gpuNativeVideo && core && !core->gbaMode && !Settings::screenGhost &&
+        !Settings::highRes3D && Settings::screenFilter != 1 &&
+        (Settings::screenFilter ? nativeLinearShader != 0 : nativePointShader != 0);
+}
+
+void *ConsoleUI::createTexture(uint32_t *data, int width, int height, bool nativeRgb6) {
     // Reuse a released texture of the same size (the game screens are
     // recreated every frame), or make a new one.
     Texture *texture = 0;
@@ -411,6 +442,7 @@ void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
         texture->width = width;
         texture->height = height;
         texture->usedFrame = 0;
+        texture->nativeRgb6 = nativeRgb6;
         if (FAILED(device->CreateTexture(width, height, 1, 0, D3DFMT_LIN_A8R8G8B8, D3DPOOL_DEFAULT,
                                          &texture->d3d, NULL))) {
             logLine("CreateTexture %dx%d failed", width, height);
@@ -418,6 +450,7 @@ void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
             return texture;
         }
     }
+    texture->nativeRgb6 = nativeRgb6;
     device->SetTexture(0, NULL);
     D3DLOCKED_RECT locked;
     if (texture->d3d && SUCCEEDED(texture->d3d->LockRect(0, &locked, NULL, 0))) {
@@ -425,6 +458,7 @@ void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
             memcpy((BYTE*)locked.pBits + y * locked.Pitch, &data[y * width], width * 4);
         texture->d3d->UnlockRect(0);
         statsTextureUploads++;
+        if (nativeRgb6) statsNativeUploads++;
     }
     return texture;
 }
@@ -465,8 +499,18 @@ void ConsoleUI::drawTexture(void *pointer, float tx, float ty, float tw, float t
     const float tint[4] = { (color & 0xFF) / 255.0f, ((color >> 8) & 0xFF) / 255.0f,
                             ((color >> 16) & 0xFF) / 255.0f, (color >> 24) / 255.0f };
     device->SetPixelShaderConstantF(0, tint, 1);
-    device->SetSamplerState(0, D3DSAMP_MAGFILTER, filter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
-    device->SetSamplerState(0, D3DSAMP_MINFILTER, filter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+    if (texture->nativeRgb6) {
+        // Never interpolate packed RGB6 bytes. The linear shader decodes four
+        // point samples and only then blends the expanded colours.
+        device->SetPixelShader(filter ? nativeLinearShader : nativePointShader);
+        const float imageSize[4] = { (float)texture->width, (float)texture->height,
+            1.0f / texture->width, 1.0f / texture->height };
+        device->SetPixelShaderConstantF(1, imageSize, 1);
+    }
+    else device->SetPixelShader(pixelShader);
+    const bool hardwareFilter = filter && !texture->nativeRgb6;
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, hardwareFilter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, hardwareFilter ? D3DTEXF_LINEAR : D3DTEXF_POINT);
     device->SetTexture(0, texture->d3d);
     device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(QuadVertex));
     texture->usedFrame = frameNumber;
@@ -526,8 +570,8 @@ void __cdecl main() {
     audioInit();
     ConsoleUI::initialize(kWidth, kHeight, "/game:/roms", "/game:");
     if (Settings::threaded3D > 2) Settings::threaded3D = 2; // an old noods.ini would crash the menu
-    logLine("Settings: threaded3D=%d fpsLimiter=%d savesFolder=%d", Settings::threaded3D,
-            Settings::fpsLimiter, Settings::savesFolder);
+    logLine("Settings: threaded3D=%d fpsLimiter=%d savesFolder=%d gpuNativeVideo=%d", Settings::threaded3D,
+            Settings::fpsLimiter, Settings::savesFolder, ConsoleUI::gpuNativeVideo);
     ConsoleUI::fileBrowser();
     ConsoleUI::mainLoop(xboxTouch);
 
