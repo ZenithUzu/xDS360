@@ -30,7 +30,7 @@ endforeach()
 add_library(noods_xsdk STATIC ${core_sources})
 target_include_directories(noods_xsdk PUBLIC "${CMAKE_CURRENT_LIST_DIR}/compat")
 target_include_directories(noods_xsdk SYSTEM PUBLIC "${REPO}/xdk/noods/core")
-target_compile_definitions(noods_xsdk PUBLIC NOODS_XENON=1 NO_FDOPEN=1 LOG_LEVEL=0)
+target_compile_definitions(noods_xsdk PUBLIC NOODS_XENON=1 LOG_LEVEL=0)
 # The converted aligned byte-array accessors inherited MSVC's aliasing model.
 target_compile_options(noods_xsdk PRIVATE -O2 -fno-strict-aliasing -fno-rtti)
 if(XSDK)
