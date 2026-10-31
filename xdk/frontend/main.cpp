@@ -34,7 +34,7 @@ extern const unsigned int xboxButtonPixels[5][48 * 48];
 namespace {
 
 const char *kTitle = "xDS360";
-const char *kVersion = "0.2.0-dev"; // change when something visible changes
+const char *kVersion = "0.2.1-perf-dev"; // change when something visible changes
 const char *kLogPath = "game:\\xds360.log";
 const char *kOldLogPath = "game:\\xds360-anterior.log";
 const int kWidth = 1280, kHeight = 720;
@@ -305,6 +305,7 @@ void mountDrive(const char *link, const char *deviceName) {
 
 long long statsStart = 0;
 unsigned statsFrames = 0;
+unsigned statsTextureUploads = 0;
 bool wasRunning = false;
 
 void logStats() {
@@ -315,13 +316,17 @@ void logStats() {
         if (wasRunning) logMemory("with the game running");
         statsStart = now;
         statsFrames = 0;
+        statsTextureUploads = 0;
     }
     statsFrames++;
     if (wasRunning && now - statsStart >= 5000000) {
-        logLine("Game fps=%d, screen fps=%.1f", ConsoleUI::core ? ConsoleUI::core->fps : 0,
-                statsFrames * 1000000.0 / (now - statsStart));
+        logLine("Game fps=%d, screen fps=%.1f, texture uploads=%u, window ms=%u, frameskip=%d, workers3D=%d",
+                ConsoleUI::core ? ConsoleUI::core->fps : 0,
+                statsFrames * 1000000.0 / (now - statsStart), statsTextureUploads,
+                (unsigned)((now - statsStart) / 1000), Settings::frameskip, Settings::threaded3D);
         statsStart = now;
         statsFrames = 0;
+        statsTextureUploads = 0;
     }
 }
 
@@ -419,6 +424,7 @@ void *ConsoleUI::createTexture(uint32_t *data, int width, int height) {
         for (int y = 0; y < height; y++)
             memcpy((BYTE*)locked.pBits + y * locked.Pitch, &data[y * width], width * 4);
         texture->d3d->UnlockRect(0);
+        statsTextureUploads++;
     }
     return texture;
 }
@@ -503,9 +509,12 @@ void __cdecl main() {
     mkdir("/game:/roms"); // NooDS makes saves, states and cheats itself
 
     // Hardware threads, in the order NooDS starts its threads: emulator 0,
-    // then saves/3D workers on 1-4. Menus run on 5 and audio on 1.
-    static const int processors[5] = { 0, 1, 2, 3, 4 };
+    // then saves on 1 and the default two 3D workers on 2 and 4.
+    // Xenon SMT siblings are 0/1, 2/3 and 4/5: spread 3D across physical
+    // cores rather than putting both workers on siblings 2/3. Menus use 5.
+    static const int processors[5] = { 0, 1, 2, 4, 3 };
     xds::setThreadProcessors(processors, 5);
+    logLine("Worker processors: core=0 save=1 render=2,4 extra=3; frontend=5 audio=1");
 
     // Defaults for a first run (noods.ini overrides them afterwards).
     // The settings menu only knows 0-2 threads; 2D threads are created every frame, too costly here.

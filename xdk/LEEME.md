@@ -117,3 +117,8 @@ por cuadro. Si algo falla en la consola, mándalo.
   para Xbox, con encabezados falsos del XDK.
 - `tools/xdk/sim/run_sim.sh`: corre el `main.cpp` real en la PC con un XDK
   simulado (dibuja en una imagen, botones de un guion) y saca capturas.
+
+## Rama experimental de rendimiento
+
+Ver [OPTIMIZACION_XDK.md](../docs/OPTIMIZACION_XDK.md) para los cambios ARM,
+texturas, afinidad y salto de cuadros, y para comparar con la compilación anterior.

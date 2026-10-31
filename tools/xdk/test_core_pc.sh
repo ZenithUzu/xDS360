@@ -19,7 +19,7 @@ mapfile -t sources < <(cd "$repo_root/xdk/noods/core" && find . -name '*.cpp' | 
 # -I xdk/compat comes first, so <thread>, <mutex>, <atomic>, <chrono> and
 # <condition_variable> resolve to our versions, as they do in VS2010.
 "$cxx" -w -std=gnu++11 -O2 -fstrict-aliasing -pthread \
-    -DLOG_LEVEL=0 -DNOODS_XENON=1 -DNO_FDOPEN=1 \
+    -DLOG_LEVEL=0 -DNOODS_XENON=1 -DNO_FDOPEN=1 -DXDS_EXTENDED_FRAMESKIP=1 \
     -I"$repo_root/xdk/compat" -I"$repo_root/xdk/noods/core" \
     "$repo_root/tests/noods_core_smoke.cpp" "${sources[@]}" \
     "$repo_root/xdk/compat/xds_platform.cpp" -o "$binary"

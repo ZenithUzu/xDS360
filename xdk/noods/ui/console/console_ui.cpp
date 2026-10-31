@@ -217,7 +217,11 @@ void ConsoleUI::initialize(int width, int height, std::string root, std::string 
 }
 
 void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout) {
+    void *gbaTexture = nullptr, *topTexture = nullptr, *botTexture = nullptr;
+    bool textureGba = gbaMode, textureShift = false;
     while (running) {
+        core->gpu.requestFrameSkip(Settings::frameskip);
+
         // Check if GBA mode changed
         if (gbaMode != (core->gbaMode && ScreenLayout::gbaCrop)) {
             gbaMode = !gbaMode;
@@ -233,28 +237,35 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
         }
 
         // Update the framebuffer and start rendering
-        void *gbaTexture = nullptr, *topTexture = nullptr, *botTexture = nullptr;
         bool shift = (Settings::highRes3D || Settings::screenFilter == 1);
-        core->gpu.getFrame(framebuffer, gbaMode);
+        const bool freshFrame = core->gpu.getFrame(framebuffer, gbaMode);
+        if (freshFrame || textureGba != gbaMode || textureShift != shift) {
+            if (gbaTexture) destroyTexture(gbaTexture);
+            if (topTexture) destroyTexture(topTexture);
+            if (botTexture) destroyTexture(botTexture);
+            gbaTexture = topTexture = botTexture = nullptr;
+            textureGba = gbaMode;
+            textureShift = shift;
+        }
         startFrame(0);
 
         if (gbaMode) {
             // Draw the GBA screen
-            gbaTexture = createTexture(&framebuffer[0], 240 << shift, 160 << shift);
+            if (!gbaTexture) gbaTexture = createTexture(&framebuffer[0], 240 << shift, 160 << shift);
             drawTexture(gbaTexture, 0, 0, 240 << shift, 160 << shift, layout.topX, layout.topY,
                 layout.topWidth, layout.topHeight, Settings::screenFilter, ScreenLayout::screenRotation);
         }
         else { // DS mode
             // Draw the DS top screen
             if (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing < 2) {
-                topTexture = createTexture(&framebuffer[0], 256 << shift, 192 << shift);
+                if (!topTexture) topTexture = createTexture(&framebuffer[0], 256 << shift, 192 << shift);
                 drawTexture(topTexture, 0, 0, 256 << shift, 192 << shift, layout.topX, layout.topY,
                     layout.topWidth, layout.topHeight, Settings::screenFilter, ScreenLayout::screenRotation);
             }
 
             // Draw the DS bottom screen
             if (ScreenLayout::screenArrangement != 3 || ScreenLayout::screenSizing == 2) {
-                botTexture = createTexture(&framebuffer[(256 * 192) << (shift * 2)], 256 << shift, 192 << shift);
+                if (!botTexture) botTexture = createTexture(&framebuffer[(256 * 192) << (shift * 2)], 256 << shift, 192 << shift);
                 drawTexture(botTexture, 0, 0, 256 << shift, 192 << shift, layout.botX, layout.botY,
                     layout.botWidth, layout.botHeight, Settings::screenFilter, ScreenLayout::screenRotation);
             }
@@ -297,11 +308,8 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
             core->spi.clearTouch();
         }
 
-        // Finish drawing and free textures
+        // Submit this refresh; retain screen textures until the next image.
         endFrame();
-        if (gbaTexture) destroyTexture(gbaTexture);
-        if (topTexture) destroyTexture(topTexture);
-        if (botTexture) destroyTexture(botTexture);
 
         // Restore the FPS limiter when pausing or releasing fast-forward hold
         if ((fpsLimiterBackup && (pressed & keyBinds[INPUT_MENU])) ||
@@ -312,7 +320,11 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
 
         // Handle pressing special hotkeys
         if (pressed & keyBinds[INPUT_MENU]) {
-            // Open the pause menu
+            // A pause can replace the ROM or change the output format.
+            if (gbaTexture) destroyTexture(gbaTexture);
+            if (topTexture) destroyTexture(topTexture);
+            if (botTexture) destroyTexture(botTexture);
+            gbaTexture = topTexture = botTexture = nullptr;
             pauseMenu();
         }
         else if (pressed & keyBinds[INPUT_FAST_HOLD]) {
@@ -339,6 +351,9 @@ void ConsoleUI::mainLoop(MenuTouch (*specialTouch)(), ScreenLayout *touchLayout)
             changed = true;
         }
     }
+    if (gbaTexture) destroyTexture(gbaTexture);
+    if (topTexture) destroyTexture(topTexture);
+    if (botTexture) destroyTexture(botTexture);
 }
 
 int ConsoleUI::setPath(std::string path) {

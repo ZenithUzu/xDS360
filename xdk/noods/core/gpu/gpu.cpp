@@ -285,7 +285,7 @@ bool Gpu::getFrameXenon(uint16_t *out, bool gbaCrop) {
 void Gpu::requestFrameSkip(int skip) {
     // Four-times mode hands off one rendered frame out of every four.
     if (skip < 0) skip = 0;
-    if (skip > 3) skip = 3;
+    if (skip > 5) skip = 5; // match the six settings-menu choices
     requestedFrameSkip.store(skip, std::memory_order_relaxed);
 }
 #endif

@@ -255,8 +255,7 @@ bool verify_turbo_display_capture_case(const char* rom_path, bool hidden_3d,
             (core->gpu.readDispCapCnt() & (1u << 31)) == 0;
     }
 
-    const int expected_handoffs = frame_skip == 1 ? 6 :
-        (frame_skip == 2 ? 4 : 3);
+    const int expected_handoffs = 12 / (frame_skip + 1);
     const bool expected_next_handoff = frame_skip == 1;
     const bool passed = !capture_handoff &&
         next_handoff == expected_next_handoff &&
@@ -278,7 +277,12 @@ bool verify_turbo_display_capture_case(const char* rom_path, bool hidden_3d,
 }
 
 bool verify_turbo_display_capture_matrix(const char* rom_path) {
-    for (int frame_skip : { 1, 2, 3 }) {
+#ifdef XDS_EXTENDED_FRAMESKIP
+    const int maximum_skip = 5; // XDK menu supports 0-5; LibXenon supports 0-3.
+#else
+    const int maximum_skip = 3;
+#endif
+    for (int frame_skip = 1; frame_skip <= maximum_skip; ++frame_skip) {
         for (int renderer_threads : { 0, 3, 4 }) {
             for (int hidden_3d = 0; hidden_3d <= 1; ++hidden_3d) {
                 for (int late_enable = 0; late_enable <= 1; ++late_enable) {
@@ -290,8 +294,8 @@ bool verify_turbo_display_capture_matrix(const char* rom_path) {
             }
         }
     }
-    std::printf("PASS capture-turbo matrix=36 handoffs=6/12,4/12,3/12 "
-                "fresh_full_frames=12/12\n");
+    std::printf("PASS capture-turbo matrix=%d max_skip=%d "
+                "fresh_full_frames=12/12\n", maximum_skip * 12, maximum_skip);
     return true;
 }
 

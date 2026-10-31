@@ -18,6 +18,7 @@ replacements that fail loudly if upstream changes.
 Requires: pip install libclang
 """
 import os
+from pathlib import Path
 import re
 import shutil
 import sys
@@ -456,6 +457,8 @@ def main():
             rel = os.path.relpath(os.path.join(dirpath, name), OUT).replace(os.sep, '/')
             if name.endswith('.cpp') and rel not in keep:
                 os.remove(os.path.join(dirpath, name))
+    from optimize_noods import optimize
+    optimize(Path(OUT))
     write_images()
     shutil.copy(os.path.join(REPO, 'third_party', 'noods', 'LICENSE'), os.path.join(OUT, 'LICENSE'))
     print('fields moved: %d, constructors touched: %d, files: %s' % (
