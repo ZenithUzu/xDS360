@@ -245,6 +245,7 @@ FORCE_INLINE int Interpreter::runOpcode() {
             case 2: return handleReserved(opcode); // Reserved
             default:
 #ifdef NOODS_XENON
+#include "arm_direct.inc"
                 // ARM branches dominate tight game loops. Bypass the generic
                 // member-pointer table for branch, branch-with-link, and SWI.
                 switch (opcode & 0x0F000000u) {
