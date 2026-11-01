@@ -30,6 +30,9 @@ Gpu3DRenderer::Gpu3DRenderer(Core *core): core(core), resShift(false), framebuff
 }
 
 Gpu3DRenderer::~Gpu3DRenderer() {
+#ifdef __XSDK__
+    stopWorkers();
+#endif
     // Clean up the threads
     for (size_t i = 0; i < threads.size(); i++) {
         threads[i]->join();
@@ -113,6 +116,12 @@ uint32_t *Gpu3DRenderer::getLine1(int line) {
 
 void Gpu3DRenderer::drawScanline(int line) {
     if (line == 0) {
+#ifdef __XSDK__
+        {
+            std::unique_lock<std::mutex> lock(workerMutex);
+            workerDone.wait(lock, [this] { return workersBusy == 0; });
+        }
+#endif
         // Update the resolution shift for the next frame
         resShift = Settings::highRes3D;
 
@@ -156,6 +165,25 @@ void Gpu3DRenderer::drawScanline(int line) {
 #endif
         }
 
+        // xSDK keeps workers alive across frames, like a threaded software renderer.
+#ifdef __XSDK__
+        const unsigned requested = Settings::threaded3D & 0xF;
+        if (requested != threads.size()) {
+            stopWorkers();
+            activeThreads = requested;
+            for (unsigned i = 0; i < requested; ++i)
+                threads.push_back(new std::thread(&Gpu3DRenderer::workerLoop, this, i));
+        }
+        if (activeThreads) {
+            for (int i = 0; i < (192 << resShift); ++i) ready[i].store(0);
+            {
+                std::lock_guard<std::mutex> lock(workerMutex);
+                workersBusy = activeThreads;
+                ++workerGeneration;
+            }
+            workerStart.notify_all();
+        }
+#else
         // Clean up any existing threads
         for (size_t i = 0; i < threads.size(); i++) {
             threads[i]->join();
@@ -173,6 +201,7 @@ void Gpu3DRenderer::drawScanline(int line) {
             for (uint8_t i = 0; i < activeThreads; i++)
                 threads.push_back(new std::thread(&Gpu3DRenderer::drawThreaded, this, i));
         }
+#endif
     }
 
     // Draw scanlines normally when threading is disabled
@@ -193,6 +222,40 @@ void Gpu3DRenderer::drawScanline(int line) {
         }
     }
 }
+
+#ifdef __XSDK__
+void Gpu3DRenderer::workerLoop(int thread) {
+    unsigned seen = 0;
+    for (;;) {
+        {
+            std::unique_lock<std::mutex> lock(workerMutex);
+            workerStart.wait(lock, [this, seen] { return workersStop || workerGeneration != seen; });
+            if (workersStop) return;
+            seen = workerGeneration;
+        }
+        drawThreaded(thread);
+        {
+            std::lock_guard<std::mutex> lock(workerMutex);
+            --workersBusy;
+        }
+        workerDone.notify_one();
+    }
+}
+
+void Gpu3DRenderer::stopWorkers() {
+    {
+        std::unique_lock<std::mutex> lock(workerMutex);
+        workerDone.wait(lock, [this] { return workersBusy == 0; });
+        workersStop = true;
+    }
+    workerStart.notify_all();
+    for (auto thread : threads) { thread->join(); delete thread; }
+    threads.clear();
+    workersStop = false;
+    workerGeneration = 0;
+    activeThreads = 0;
+}
+#endif
 
 void Gpu3DRenderer::drawThreaded(int thread) {
     // Draw the 3D scanlines in a threaded sequence
