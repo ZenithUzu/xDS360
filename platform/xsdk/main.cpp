@@ -23,6 +23,13 @@ constexpr unsigned pixels = 256 * 384;
 uint32_t frame[pixels];
 FILE *report = nullptr;
 using Clock = std::chrono::steady_clock;
+double elapsedMs(Clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(Clock::now()-start).count();
+}
+struct Timings {
+    double core=0, capture=0, textureWait=0, upload=0, presentWait=0, submit=0;
+    unsigned frames=0;
+} timings;
 
 void log(const char *message) {
     xsdk_log_write("xDS360: %s", message);
@@ -81,12 +88,16 @@ struct Video {
 
     bool draw(const char *hud) {
         const unsigned next = slot++ & 1u;
+        auto start=Clock::now();
         // The GPU may still be reading this texture from two frames ago.
         if (fences[next] && !NT_SUCCESS(xsdk_gpu_wait(fences[next], 5000))) return false;
+        timings.textureWait+=elapsedMs(start); start=Clock::now();
         xsdk_texture_upload(&textures[next], 0, frame, 256 * sizeof(uint32_t));
         xsdk_gpu_invalidate(textures[next].address, textures[next].size_bytes);
+        timings.upload+=elapsedMs(start); start=Clock::now();
         uint32_t address;
         if (!NT_SUCCESS(xsdk_present_begin(&address, 5000))) return false;
+        timings.presentWait+=elapsedMs(start); start=Clock::now();
         xsdk_gpu_set_target(width, height);
         if (!primed) { xsdk_gpu_resolve(address, width, height, 0xFF101010u); primed = true; }
         xsdk_gpu_set_target(width, height);
@@ -100,6 +111,7 @@ struct Video {
         xsdk_gpu_resolve(address, width, height, 0xFF101010u);
         fences[next] = xsdk_gpu_fence();
         xsdk_present_end();
+        timings.submit+=elapsedMs(start); ++timings.frames;
         return true;
     }
 
@@ -168,7 +180,7 @@ int run(Video &video) {
         frame[y*256+x] = y<192 ? 0xFF0000FFu : 0xFFFF0000u;
     xenonds::ControllerMapper mapper;
     unsigned emulated = 0, shown = 0;
-    auto window = Clock::now(), lastSave = window;
+    auto window = Clock::now(), lastSave = window, lastReport = window;
     char hud[512]; std::snprintf(hud,sizeof hud,"xDS360 xSDK 0.1 | %s",core ? "Cargando NSMB/DS..." : message);
     const unsigned exitChord = INPUT_GAMEPAD_BACK|INPUT_GAMEPAD_START|INPUT_GAMEPAD_LEFT_SHOULDER|INPUT_GAMEPAD_RIGHT_SHOULDER;
     bool stopped = false;
@@ -181,11 +193,14 @@ int run(Video &video) {
             apply(*core,input);
             const uint32_t before = core->completedFrames;
             try {
+                auto start=Clock::now();
                 unsigned slices = 0;
                 do { core->runCore(); } while (core->completedFrames==before && ++slices<4096);
                 if (core->completedFrames==before) throw std::runtime_error("Sin progreso de cuadros");
                 emulated += core->completedFrames-before;
+                timings.core+=elapsedMs(start); start=Clock::now();
                 (void)core->gpu.getFrame(frame,false);
+                timings.capture+=elapsedMs(start);
             } catch (int error) {
                 std::snprintf(hud,sizeof hud,"Error del nucleo: %d. BACK: salir",error); log(hud); stopped=true;
             } catch (const std::exception &error) {
@@ -206,7 +221,17 @@ int run(Video &video) {
                 "xDS360 xSDK 0.1 | EMU %.1f FPS | VID %.1f | SIN AUDIO\nSalir: LB+RB+START+BACK | Tactil: stick derecho + RT | Reporte: %s",
                 emulated/seconds,shown/seconds,report?"OK":"NO DISPONIBLE");
             else std::snprintf(hud,sizeof hud,"xDS360 xSDK 0.1 | %s\nReporte: %s",message,report?"OK":"NO DISPONIBLE");
-            log(hud); emulated=shown=0; window=now;
+            emulated=shown=0; window=now;
+        }
+        if (now-lastReport>=std::chrono::seconds(5) && timings.frames) {
+            log(hud);
+            char profile[384];
+            const double n=timings.frames;
+            std::snprintf(profile,sizeof profile,
+                "PROFILE ms/frame | core %.3f | capture_convert %.3f | texture_wait %.3f | upload %.3f | present_begin %.3f | submit_end %.3f | frames %u",
+                timings.core/n,timings.capture/n,timings.textureWait/n,timings.upload/n,
+                timings.presentWait/n,timings.submit/n,timings.frames);
+            log(profile); timings=Timings{}; lastReport=Clock::now();
         }
         if (core && now-lastSave>=std::chrono::seconds(5)) { core->cartridgeNds.writeSave(); lastSave=now; }
     }
