@@ -23,6 +23,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <thread>
+#ifdef __XSDK__
+#include <mutex>
+#include <condition_variable>
+#endif
 
 class Core;
 struct Vertex;
@@ -75,6 +79,14 @@ private:
 
     uint8_t activeThreads;
     std::vector<std::thread*> threads;
+#ifdef __XSDK__
+    std::mutex workerMutex;
+    std::condition_variable workerStart, workerDone;
+    unsigned workerGeneration = 0, workersBusy = 0;
+    bool workersStop = false;
+    void workerLoop(int thread);
+    void stopWorkers();
+#endif
     std::atomic<int> ready[192 * 2];
 
     uint16_t disp3DCnt;
